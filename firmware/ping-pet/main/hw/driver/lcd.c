@@ -10,6 +10,7 @@
 #include "esp_lcd_mipi_dsi.h"
 #include "esp_lcd_panel_ops.h"
 #include "esp_lcd_panel_io.h"
+#include "driver/ppa.h"
 
 
 /* JC4880P443C LCD — ST7701S, MIPI-DSI 2 레인 (docs/22-lcd-touch.md)
@@ -54,6 +55,8 @@ static uint8_t           draw_index = 1;          // 다음에 그릴 버퍼. 0 
 static SemaphoreHandle_t vsync_sem = NULL;
 static volatile uint32_t vsync_cnt = 0;
 static uint32_t          update_ms = 0;
+static ppa_client_handle_t ppa_srm = NULL;
+static uint32_t          ppa_us = 0;
 
 
 
@@ -185,6 +188,15 @@ bool lcdInitPanel(void)
   };
   esp_lcd_dpi_panel_register_event_callbacks(dpi_panel, &cbs, NULL);
 
+  // 8. PPA (화면 버퍼 → 패널 방향으로 회전)
+  //
+  ppa_client_config_t ppa_cfg =
+  {
+    .oper_type = PPA_OPERATION_SRM,
+  };
+  err = ppa_register_client(&ppa_cfg, &ppa_srm);
+  if (err != ESP_OK) { logPrintf("[E_] lcd ppa %s\n", esp_err_to_name(err)); return false; }
+
   return true;
 }
 
@@ -295,6 +307,75 @@ void lcdUpdateDraw(void)
   update_ms = millis() - pre_time;
 }
 
+//-- 화면 버퍼(가로 LCD_WIDTH x LCD_HEIGHT, RGB565)를 PPA 로 돌려 표시한다. LVGL 출력이 쓴다.
+//
+//   PPA 가 다음 버퍼에 돌려 쓰고 (입력 C2M, 출력 M2C 캐시 처리는 PPA 드라이버가 한다)
+//   draw_bitmap 으로 표시 버퍼를 바꾼 뒤 vsync 를 기다린다. CPU 복사가 없다.
+//   p_screen 은 캐시 라인(128 B)에 맞춰 할당해야 한다.
+//
+bool lcdDrawScreen(const uint16_t *p_screen)
+{
+  esp_err_t err;
+  uint16_t *p_out;
+  uint32_t  pre_time = millis();
+  uint32_t  pre_us;
+
+  if (is_init != true) return false;
+
+  p_out = frame_buf[draw_index];
+
+  ppa_srm_oper_config_t srm =
+  {
+    .in =
+    {
+      .buffer         = p_screen,
+      .pic_w          = LCD_WIDTH,
+      .pic_h          = LCD_HEIGHT,
+      .block_w        = LCD_WIDTH,
+      .block_h        = LCD_HEIGHT,
+      .block_offset_x = 0,
+      .block_offset_y = 0,
+      .srm_cm         = PPA_SRM_COLOR_MODE_RGB565,
+    },
+    .out =
+    {
+      .buffer         = p_out,
+      .buffer_size    = FB_SIZE,
+      .pic_w          = PANEL_W,
+      .pic_h          = PANEL_H,
+      .block_offset_x = 0,
+      .block_offset_y = 0,
+      .srm_cm         = PPA_SRM_COLOR_MODE_RGB565,
+    },
+#if HW_LCD_ROTATION == 90
+    .rotation_angle = PPA_SRM_ROTATION_ANGLE_90,        // PPA 각도는 반시계 방향
+#elif HW_LCD_ROTATION == 270
+    .rotation_angle = PPA_SRM_ROTATION_ANGLE_270,
+#else
+    .rotation_angle = PPA_SRM_ROTATION_ANGLE_0,
+#endif
+    .scale_x        = 1.0f,
+    .scale_y        = 1.0f,
+    .mode           = PPA_TRANS_MODE_BLOCKING,
+  };
+
+  pre_us = micros();
+  err = ppa_do_scale_rotate_mirror(ppa_srm, &srm);
+  ppa_us = micros() - pre_us;
+  if (err != ESP_OK)
+  {
+    return false;
+  }
+
+  xSemaphoreTake(vsync_sem, 0);
+  esp_lcd_panel_draw_bitmap(dpi_panel, 0, 0, PANEL_W, PANEL_H, p_out);
+  xSemaphoreTake(vsync_sem, pdMS_TO_TICKS(50));
+  draw_index ^= 1;
+
+  update_ms = millis() - pre_time;
+  return true;
+}
+
 //-- 화면 좌표(가로) → 패널 버퍼 인덱스(세로). touch.c 의 touchRotate() 와 반대 방향이다
 //
 static inline int32_t lcdIndex(int16_t x, int16_t y)
@@ -399,7 +480,7 @@ void cliLcd(cli_args_t *args)
     cliPrintf("screen    : %d x %d, rotation %d\n", LCD_WIDTH, LCD_HEIGHT, HW_LCD_ROTATION);
     cliPrintf("fb        : %p, %p (draw %d)\n", frame_buf[0], frame_buf[1], draw_index);
     cliPrintf("backlight : %d %%, %d Hz\n", backlight_value, HW_LCD_BL_FREQ_HZ);
-    cliPrintf("update    : %d ms\n", (int)update_ms);
+    cliPrintf("update    : %d ms (ppa %d us)\n", (int)update_ms, (int)ppa_us);
 
     uint32_t cnt = vsync_cnt;
     delay(1000);

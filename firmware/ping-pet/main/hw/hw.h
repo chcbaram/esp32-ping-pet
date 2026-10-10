@@ -16,6 +16,7 @@ extern "C" {
 #include "i2c.h"
 #include "lcd.h"
 #include "touch.h"
+#include "lvgl.h"
 #include "qbuffer.h"
 #include "util_core.h"
 

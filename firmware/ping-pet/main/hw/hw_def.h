@@ -33,6 +33,10 @@
 #define      HW_LCD_PIN_BL          23        // MP3202 부스트, LEDC PWM
 #define      HW_LCD_BL_FREQ_HZ      25000     // 5 kHz 에서 코일 소음 보고 (docs/22 #9)
 
+//-- LVGL 9.6 (컴포넌트 lvgl/lvgl, 설정은 sdkconfig.defaults)
+//
+#define _USE_HW_LVGL
+
 //-- Touch : GT911
 //
 #define _USE_HW_TOUCH
@@ -75,6 +79,7 @@
 #define _USE_CLI_HW_TOUCH           1
 #define _USE_CLI_HW_GT911           1
 #define _USE_CLI_HW_I2C             1
+#define _USE_CLI_HW_LVGL            1
 
 
 #endif

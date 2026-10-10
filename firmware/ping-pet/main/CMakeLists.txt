@@ -21,12 +21,14 @@ idf_component_register(
     INCLUDE_DIRS ""
     INCLUDE_DIRS "ap"
     INCLUDE_DIRS "ap/modules"
+    INCLUDE_DIRS "ap/modules/ui"
     INCLUDE_DIRS "bsp"
     INCLUDE_DIRS "common"
     INCLUDE_DIRS "common/core"
     INCLUDE_DIRS "common/hw/include"
     INCLUDE_DIRS "hw"
     INCLUDE_DIRS "hw/driver/usb"
+    INCLUDE_DIRS "hw/driver"
 
     # MODULE_DEF 는 constructor 로 자기 등록한다. 다른 곳에서 참조하지 않는 모듈 파일을
     # 링커가 버리지 않도록 아카이브 전체를 링크한다 (ap/modules/module.h 참고)

@@ -47,6 +47,7 @@ static uint16_t touch_height = 0;
 static char     product_id[5] = {0};
 static uint16_t fw_version = 0;
 static uint32_t detect_ms = 0;
+static gt911_info_t last_info = {0};
 #ifdef _USE_HW_RTOS
 static SemaphoreHandle_t mutex_lock = NULL;
 #endif
@@ -186,7 +187,8 @@ bool gt911GetInfo(gt911_info_t *p_info)
   }
 
   // INT 가 없으므로 상태 레지스터의 buffer ready(bit7) 를 본다.
-  // 준비가 안 됐으면 이전 상태를 모르는 것이므로 "변화 없음"(count 0, true) 으로 돌려준다.
+  // 새 좌표가 아직 없으면 마지막 상태를 그대로 돌려준다. 0 개로 돌려주면 누르고 있는 동안에도
+  // 뗀 것으로 보여 LVGL 의 길게 누르기가 끊긴다.
   //
   ret = readRegs(GT911_POINT_INFO, buf, 1);
   if (ret != true)
@@ -195,6 +197,7 @@ bool gt911GetInfo(gt911_info_t *p_info)
   }
   if ((buf[0] & (1<<7)) == 0)
   {
+    *p_info = last_info;
     return true;
   }
 
@@ -216,6 +219,7 @@ bool gt911GetInfo(gt911_info_t *p_info)
     p_info->point[i].y      = (buf[4]<<8) | (buf[3]<<0);
   }
   p_info->count = (ret == true) ? touch_cnt : 0;
+  last_info = *p_info;
 
   // 읽었으면 상태를 지운다 (다음 좌표를 받는다)
   buf[0] = 0;

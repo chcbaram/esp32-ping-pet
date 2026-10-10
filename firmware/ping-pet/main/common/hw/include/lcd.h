@@ -55,6 +55,7 @@ int32_t lcdGetHeight(void);
 uint16_t *lcdGetFrameBuffer(void);           // 다음에 그릴 버퍼 (패널 방향)
 uint16_t *lcdGetCurrentFrameBuffer(void);    // 지금 표시 중인 버퍼 (패널 방향)
 void      lcdUpdateDraw(void);               // 그린 버퍼를 표시하고 다음 버퍼를 준비한다
+bool      lcdDrawScreen(const uint16_t *p_screen);  // 화면 버퍼(가로)를 PPA 로 돌려 표시한다 (LVGL)
 
 void lcdClear(uint32_t rgb_code);
 void lcdDrawPixel(int16_t x_pos, int16_t y_pos, uint32_t rgb_code);
