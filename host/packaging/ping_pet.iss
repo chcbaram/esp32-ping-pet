@@ -1,4 +1,4 @@
-; 윈도우 설치 파일 (Inno Setup 6) — PyInstaller 폴더 "dist\Ping Pet" 를 묶는다
+﻿; 윈도우 설치 파일 (Inno Setup 6) — PyInstaller 폴더 "dist\Ping Pet" 를 묶는다
 ;   host 폴더에서 : iscc /DAppVersion=0.1.0 packaging\ping_pet.iss
 #ifndef AppVersion
   #define AppVersion "0.0.0"

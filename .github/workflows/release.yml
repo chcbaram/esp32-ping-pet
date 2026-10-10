@@ -10,6 +10,9 @@ on:
 permissions:
   contents: write
 
+env:
+  PYTHONUTF8: "1"          # 윈도우 콘솔(cp1252)에서 한글 출력이 죽지 않게
+
 jobs:
   firmware:
     runs-on: ubuntu-latest
@@ -68,6 +71,8 @@ jobs:
         if: matrix.kind == 'win'
         shell: pwsh
         run: |
+          $ErrorActionPreference = "Stop"
+          $PSNativeCommandUseErrorActionPreference = $true      # python 이 실패하면 멈춘다
           python packaging/make_icons.py
           python -m PyInstaller packaging/ping_pet.spec --noconfirm --distpath packaging/dist --workpath packaging/build/work
           $ver = python -c "import pingpet; print(pingpet.__version__)"
