@@ -1,9 +1,18 @@
-#include "cli.h"
+/*
+ * cli.c
+ *
+ *  Created on: Nov 12, 2021
+ *      Author: baram
+ */
 
+
+
+
+#include "cli.h"
+#include "uart.h"
 
 
 #ifdef _USE_HW_CLI
-#include "uart.h"
 
 
 #define CLI_KEY_BACK              0x08
@@ -80,6 +89,7 @@ typedef struct
 
 
 cli_t   cli_node;
+static cli_rx_filter_t rx_filter = NULL;
 
 
 
@@ -143,6 +153,14 @@ bool cliOpen(uint8_t ch, uint32_t baud)
   }
 
   return cli_node.is_open;
+}
+
+void cliBegin(void)
+{
+  if (cli_node.is_open)
+  {
+    cliShowPrompt(&cli_node);
+  }
 }
 
 bool cliIsBusy(void)
@@ -210,22 +228,26 @@ bool cliMain(void)
     return false;
   }
 
-  if (uartAvailable(cli_node.ch) > 0)
+  // 필터가 가져가는 바이트(패킷)는 한 번에 비운다. cli 몫은 한 바이트씩 처리한다.
+  while (uartAvailable(cli_node.ch) > 0)
   {
-    cliUpdate(&cli_node, uartRead(cli_node.ch));
+    uint8_t rx_data = uartRead(cli_node.ch);
+
+    if (rx_filter != NULL && rx_filter(rx_data) == true)
+    {
+      continue;
+    }
+    cliUpdate(&cli_node, rx_data);
+    break;
   }
 
   return true;
 }
 
-void cliLogo(void)
+bool cliSetRxFilter(cli_rx_filter_t filter)
 {
-  if (cli_node.is_open != true)
-  {
-    return;
-  }
-
-  cliShowPrompt(&cli_node);
+  rx_filter = filter;
+  return true;
 }
 
 uint32_t cliAvailable(void)
@@ -751,7 +773,7 @@ bool cliAdd(const char *cmd_str, void (*p_func)(cli_args_t *))
 void cliShowList(cli_args_t *args)
 {
   cli_t *p_cli = &cli_node;
-  (void)args;
+
 
   cliPrintf("\r\n");
   cliPrintf("---------- cmd list ---------\r\n");

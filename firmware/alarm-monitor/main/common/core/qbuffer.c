@@ -1,13 +1,3 @@
-/*
- * qbuffer.c
- *
- *  Created on: Nov 12, 2021
- *      Author: baram
- */
-
-
-
-
 #include "qbuffer.h"
 
 

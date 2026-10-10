@@ -2,11 +2,10 @@
 #define AP_H_
 
 
-#include "hw.h"
-
+#include "ap_def.h"
 
 void apInit(void);
 void apMain(void);
 
 
-#endif 
+#endif

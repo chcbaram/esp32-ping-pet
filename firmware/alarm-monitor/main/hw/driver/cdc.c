@@ -1,36 +1,30 @@
 #include "cdc.h"
 
-
-
-
 #ifdef _USE_HW_CDC
+#include "usb.h"
+#include "uart.h"
 #include "qbuffer.h"
-#include "cli.h"
-#include "tinyusb.h"
-#include "tinyusb_default_config.h"
 #include "tinyusb_cdc_acm.h"
 
 
-#define CDC_RX_BUF_LEN        4096
-#define CDC_TX_TIMEOUT_MS     100
+/* ESP-IDF 에서는 esp_tinyusb 가 TinyUSB 콜백(tud_cdc_rx_cb, tud_cdc_line_state_cb)과
+   tud_task() 태스크를 갖고 있다. 그래서 수신은 esp_tinyusb 콜백에서 qbuffer 로 받고,
+   송신은 esp_tinyusb 의 write_queue / flush 를 쓴다. */
+
+
+#define CDC_RX_BUF_LENGTH       4096        // cmd 패킷(최대 1034 B)이 통째로 들어갈 만큼
+#define CDC_TX_TIMEOUT_MS       100
 
 
 static void cdcRxCallback(int itf, cdcacm_event_t *event);
 static void cdcLineStateCallback(int itf, cdcacm_event_t *event);
-#ifdef _USE_HW_CLI
-static void cliCdc(cli_args_t *args);
-#endif
 
-static bool              is_init = false;
-static volatile bool     is_connected = false;
-static qbuffer_t         rx_q;
-static uint8_t           rx_buf[CDC_RX_BUF_LEN];
-static uint8_t           rx_usb_buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE];
-static SemaphoreHandle_t tx_mutex;
-static uint32_t          rx_cnt = 0;
-static uint32_t          tx_cnt = 0;
-static uint32_t          rx_drop_cnt = 0;
 
+static bool      is_init = false;
+static qbuffer_t rx_q;
+static uint8_t   rx_buf[CDC_RX_BUF_LENGTH];
+static uint8_t   rx_usb_buf[CONFIG_TINYUSB_CDC_RX_BUFSIZE];
+static bool      prev_rts = false;
 
 
 
@@ -38,21 +32,13 @@ bool cdcInit(void)
 {
   esp_err_t esp_ret;
 
-
-  qbufferCreate(&rx_q, rx_buf, CDC_RX_BUF_LEN);
-  tx_mutex = xSemaphoreCreateMutex();
-
-  // ESP32-P4: USB 2.0 HS OTG 포트
-  const tinyusb_config_t tusb_cfg = TINYUSB_DEFAULT_CONFIG();
-
-  esp_ret = tinyusb_driver_install(&tusb_cfg);
-  if (esp_ret != ESP_OK)
-  {
-    logPrintf("[E_] cdcInit() tinyusb_driver_install : %s\n", esp_err_to_name(esp_ret));
+  if (usbIsInit() != true)
     return false;
-  }
 
-  const tinyusb_config_cdcacm_t acm_cfg = {
+  qbufferCreate(&rx_q, rx_buf, CDC_RX_BUF_LENGTH);
+
+  const tinyusb_config_cdcacm_t acm_cfg =
+  {
     .cdc_port                     = TINYUSB_CDC_ACM_0,
     .callback_rx                  = cdcRxCallback,
     .callback_rx_wanted_char      = NULL,
@@ -61,19 +47,10 @@ bool cdcInit(void)
   };
 
   esp_ret = tinyusb_cdcacm_init(&acm_cfg);
-  if (esp_ret != ESP_OK)
-  {
-    logPrintf("[E_] cdcInit() tinyusb_cdcacm_init : %s\n", esp_err_to_name(esp_ret));
-    return false;
-  }
+  is_init = (esp_ret == ESP_OK);
 
-  is_init = true;
-
-#ifdef _USE_HW_CLI
-  cliAdd("cdc", cliCdc);
-#endif
-
-  return true;
+  logPrintf("[%s] cdcInit()\n", is_init ? "OK":"E_");
+  return is_init;
 }
 
 bool cdcIsInit(void)
@@ -83,11 +60,17 @@ bool cdcIsInit(void)
 
 bool cdcIsConnect(void)
 {
-  return is_connected;
+  if (is_init != true)
+    return false;
+
+  return tud_cdc_n_connected(0);
 }
 
 uint32_t cdcAvailable(void)
 {
+  if (is_init != true)
+    return 0;
+
   return qbufferAvailable(&rx_q);
 }
 
@@ -95,107 +78,135 @@ uint8_t cdcRead(void)
 {
   uint8_t ret = 0;
 
+  if (is_init != true)
+    return 0;
+
   qbufferRead(&rx_q, &ret, 1);
-
   return ret;
-}
-
-void cdcDataIn(uint8_t rx_data)
-{
-  qbufferWrite(&rx_q, &rx_data, 1);
 }
 
 uint32_t cdcWrite(uint8_t *p_data, uint32_t length)
 {
-  uint32_t sent = 0;
   uint32_t pre_time;
+  uint32_t sent_len = 0;
 
-
-  // 호스트가 포트를 열지 않았으면 버린다 (막히지 않게)
-  if (is_init != true || is_connected != true)
-  {
+  if (cdcIsConnect() != true)
     return 0;
-  }
-
-  if (xSemaphoreTake(tx_mutex, pdMS_TO_TICKS(CDC_TX_TIMEOUT_MS)) != pdTRUE)
-  {
-    return 0;
-  }
 
   pre_time = millis();
-  while (sent < length)
+  while (sent_len < length)
   {
-    sent += tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, &p_data[sent], length - sent);
-    if (sent < length)
+    uint32_t tx_len;
+
+    tx_len = tinyusb_cdcacm_write_queue(TINYUSB_CDC_ACM_0, &p_data[sent_len], length - sent_len);
+    if (tx_len > 0)
     {
+      sent_len += tx_len;
+    }
+    else
+    {
+      // FIFO 가 찼다. USB 태스크가 내보낼 때까지 잠깐 기다린다
       tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, pdMS_TO_TICKS(10));
     }
-    if (millis() - pre_time >= CDC_TX_TIMEOUT_MS)
-    {
+
+    if (cdcIsConnect() != true)
       break;
-    }
+
+    if (millis() - pre_time >= CDC_TX_TIMEOUT_MS)
+      break;
   }
   tinyusb_cdcacm_write_flush(TINYUSB_CDC_ACM_0, 0);
-  tx_cnt += sent;
 
-  xSemaphoreGive(tx_mutex);
-
-  return sent;
+  return sent_len;
 }
 
 uint32_t cdcGetBaud(void)
 {
-  return 115200;
+  cdc_line_coding_t coding;
+
+  if (is_init != true)
+    return 0;
+
+  tud_cdc_n_get_line_coding(0, &coding);
+  return coding.bit_rate;
 }
+
+//-- 호스트가 연 보율로 CDC 스트림의 주인을 가른다.
+//
+//   115200 = 터미널(CLI), 그 외 = 호스트 툴(cmd 패킷).
+//   둘이 같은 스트림에서 각자 읽으면 서로 바이트를 훔쳐 양쪽 다 깨진다.
+//   판정은 cli 모듈과 cmd 모듈이 같이 쓴다.
+//
+uint8_t cdcGetType(void)
+{
+  if (cdcGetBaud() == 115200)
+    return USB_CON_CLI;
+
+  return USB_CON_CDC;
+}
+
+//-- CDC 를 uart 채널(HW_UART_CH_USB) 로 쓰기 위한 드라이버.
+//   uartSetDriver() 로 꽂는다. CLI 와 로그가 uartWrite() 로 CDC 에 쓸 수 있게 된다.
+//
+static bool     cdcUartOpen(uint32_t baud)  { (void)baud; return true; }
+static bool     cdcUartClose(void)          { return true; }
+static uint32_t cdcUartAvailable(void)      { return cdcAvailable(); }
+static bool     cdcUartFlush(void)          { while (cdcAvailable()) cdcRead(); return true; }
+static uint8_t  cdcUartRead(void)           { return cdcRead(); }
+static uint32_t cdcUartWrite(uint8_t *p_data, uint32_t length) { return cdcWrite(p_data, length); }
+
+uart_driver_t cdc_uart_driver =
+{
+  .open      = cdcUartOpen,
+  .close     = cdcUartClose,
+  .available = cdcUartAvailable,
+  .flush     = cdcUartFlush,
+  .read      = cdcUartRead,
+  .write     = cdcUartWrite,
+};
 
 void cdcRxCallback(int itf, cdcacm_event_t *event)
 {
   size_t   rx_size = 0;
   uint32_t q_free;
 
+  (void)event;
 
   if (tinyusb_cdcacm_read(itf, rx_usb_buf, sizeof(rx_usb_buf), &rx_size) != ESP_OK)
   {
     return;
   }
 
+  // 큐가 차면 넘치는 만큼 버린다 (qbuffer 는 덮어쓰지 않는다)
   q_free = rx_q.len - qbufferAvailable(&rx_q) - 1;
   if (rx_size > q_free)
   {
-    rx_drop_cnt += rx_size - q_free;
     rx_size = q_free;
   }
   qbufferWrite(&rx_q, rx_usb_buf, rx_size);
-  rx_cnt += rx_size;
 }
 
+//-- esptool 리셋 시퀀스로 ROM 다운로드 모드에 들어간다.
+//
+//   esptool 클래식 리셋 : (DTR=0, RTS=1) → (DTR=1, RTS=0)
+//   RTS 가 1 → 0 으로 떨어질 때 DTR 이 1 이면 다운로드 모드로 재시작한다.
+//   IDF 의 S2/S3 USB 콘솔(usb_console.c)과 같은 판정이다.
+//
+//   DTR 이 0 인 RTS 하강(포트 닫기 등)은 일반 리셋으로 보내지 않는다.
+//   macOS 에서 포트를 닫을 때마다 보드가 재시작하는 것을 막는다.
+//
 void cdcLineStateCallback(int itf, cdcacm_event_t *event)
 {
-  is_connected = event->line_state_changed_data.dtr;
-}
+  bool dtr = event->line_state_changed_data.dtr;
+  bool rts = event->line_state_changed_data.rts;
 
-#ifdef _USE_HW_CLI
-void cliCdc(cli_args_t *args)
-{
-  bool ret = false;
+  (void)itf;
 
-
-  if (args->argc == 1 && args->isStr(0, "info"))
+  if (prev_rts == true && rts == false && dtr == true)
   {
-    cliPrintf("is_init      : %s\n", is_init ? "True" : "False");
-    cliPrintf("is_connected : %s\n", is_connected ? "True" : "False");
-    cliPrintf("rx_cnt       : %lu\n", rx_cnt);
-    cliPrintf("tx_cnt       : %lu\n", tx_cnt);
-    cliPrintf("rx_drop_cnt  : %lu\n", rx_drop_cnt);
-    cliPrintf("rx_q avail   : %lu\n", qbufferAvailable(&rx_q));
-    ret = true;
+    usbJumpToBoot();
   }
-
-  if (ret == false)
-  {
-    cliPrintf("cdc info\n");
-  }
+  prev_rts = rts;
 }
-#endif
 
 #endif

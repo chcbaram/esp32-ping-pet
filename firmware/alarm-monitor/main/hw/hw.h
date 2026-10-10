@@ -8,19 +8,20 @@ extern "C" {
 #include "hw_def.h"
 
 
-#include "led.h"
 #include "uart.h"
 #include "cli.h"
 #include "log.h"
+#include "usb.h"
 #include "cdc.h"
 #include "qbuffer.h"
+#include "util_core.h"
 
 
-void hwInit(void);
+bool hwInit(void);
 
 
 #ifdef __cplusplus
 }
 #endif
 
-#endif 
+#endif

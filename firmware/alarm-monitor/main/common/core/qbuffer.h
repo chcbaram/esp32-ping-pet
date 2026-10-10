@@ -1,13 +1,5 @@
-/*
- * qbuffer.h
- *
- *  Created on: 2020. 12. 11.
- *      Author: baram
- */
-
-#ifndef SRC_COMMON_HW_INCLUDE_QBUFFER_H_
-#define SRC_COMMON_HW_INCLUDE_QBUFFER_H_
-
+#ifndef QBUFFER_H_
+#define QBUFFER_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -45,4 +37,4 @@ void     qbufferFlush(qbuffer_t *p_node);
 }
 #endif
 
-#endif /* SRC_COMMON_HW_INCLUDE_QBUFFER_H_ */
+#endif
