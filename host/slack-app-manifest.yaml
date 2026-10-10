@@ -1,0 +1,33 @@
+# Ping Pet Slack 앱 매니페스트
+#
+# api.slack.com/apps → 앱 → App Manifest 에 붙여 넣는다 (새로 만들 때는 Create New App → From a manifest).
+# 사용자 토큰(xoxp-)으로 내 DM, 그룹 DM, 내가 속한 채널 메시지를 읽기만 한다.
+# Socket Mode 라 공개 URL 이 필요 없다. App-Level Token(xapp-, connections:write) 은 Basic Information 에서 만든다.
+#
+# 토큰은 맥 키체인에만 둔다 (ping_pet.py 가 읽는다):
+#   security add-generic-password -s ping-pet -a xoxp -w
+#   security add-generic-password -s ping-pet -a xapp -w
+
+display_information:
+  name: Ping Pet
+  description: 답장을 기다리는 요청을 책상 위 펫(답답이)에게 보여 준다 (읽기 전용)
+oauth_config:
+  scopes:
+    user:
+      - im:history
+      - mpim:history
+      - channels:history
+      - groups:history
+      - channels:read     # conversations.info → 카드에 #채널이름 (없으면 채널 ID 가 보인다)
+      - groups:read       # 비공개 채널 이름
+      - users:read
+settings:
+  event_subscriptions:
+    user_events:
+      - message.im
+      - message.mpim
+      - message.channels
+      - message.groups
+  socket_mode_enabled: true
+  org_deploy_enabled: false
+  token_rotation_enabled: false
