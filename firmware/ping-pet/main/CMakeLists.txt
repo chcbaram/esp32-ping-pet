@@ -21,6 +21,7 @@ idf_component_register(
     INCLUDE_DIRS ""
     INCLUDE_DIRS "ap"
     INCLUDE_DIRS "ap/modules"
+    INCLUDE_DIRS "ap/modules/inbox"
     INCLUDE_DIRS "ap/modules/ui"
     INCLUDE_DIRS "ap/modules/ui/launcher"
     INCLUDE_DIRS "bsp"

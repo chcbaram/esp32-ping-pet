@@ -17,6 +17,9 @@ void lv_port_indev_init(void)
 
   lv_indev_set_type(indev_touchpad, LV_INDEV_TYPE_POINTER);
   lv_indev_set_read_cb(indev_touchpad, touchpad_read);
+
+  // 카드 길게 누름 = 답장 없이 처리 (인계 문서 : 1 초)
+  lv_indev_set_long_press_time(indev_touchpad, 1000);
 }
 
 lv_indev_t *lv_port_indev_get_touch(void)

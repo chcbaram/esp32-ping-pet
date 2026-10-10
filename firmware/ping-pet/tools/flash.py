@@ -99,6 +99,7 @@ def main():
   ap.add_argument("--port", help="시리얼 포트. 없으면 VID/PID 로 찾는다")
   ap.add_argument("--baud", type=int, default=460800)
   ap.add_argument("--no-baram", action="store_true", help="baram-term 포트 놓기/다시 열기를 하지 않는다")
+  ap.add_argument("--compress", action="store_true", help="압축해서 쓴다 (기본은 압축하지 않는다, 아래 주석)")
   args = ap.parse_args()
 
   if not os.path.isfile(os.path.join(BUILD_DIR, "flash_args")):
@@ -126,7 +127,10 @@ def main():
 
     cmd = esptool_cmd() + ["--chip", "esp32p4", "-p", rom.device, "-b", str(args.baud),
                            "--before", "no_reset", "--after", "hard_reset",
-                           "write_flash", "@flash_args"]
+                           "write_flash"] + ([] if args.compress else ["--no-compress"]) + ["@flash_args"]
+    # USB-OTG 다운로드에서 압축 쓰기는 이미지가 커지면 (약 3 MB, 폰트 포함) 스텁이
+    #   'Failed to write compressed data to flash after seq 575 (result was C900: Too much data)'
+    # 로 멈춘다. 압축하지 않으면 된다. HS USB 라 속도 차이는 크지 않다.
     r = subprocess.run(cmd, cwd=BUILD_DIR)
     if r.returncode != 0:
       sys.exit(r.returncode)
