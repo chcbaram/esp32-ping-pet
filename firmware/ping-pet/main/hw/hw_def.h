@@ -7,7 +7,7 @@
 
 
 #define _DEF_FIRMWATRE_VERSION    "V261010R1"
-#define _DEF_BOARD_NAME           "ALARM-MONITOR"
+#define _DEF_BOARD_NAME           "PING-PET"
 
 
 #define _USE_HW_RTOS

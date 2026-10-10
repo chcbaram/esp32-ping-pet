@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
-"""Desk Notifier: Slack Socket Mode -> 미응답 요청 목록 -> USB CDC 보드 중계.
+"""Ping Pet 맥 중계: Slack Socket Mode -> 미응답 요청 목록 -> USB CDC 보드.
 
-토큰은 키체인 서비스 `desk-notifier`의 계정 `xoxp`, `xapp`에서 읽는다.
+토큰은 키체인 서비스 `ping-pet`의 계정 `xoxp`, `xapp`에서 읽는다.
 보드와는 줄 단위 JSON(UTF-8, '\n')으로 통신한다. 프로토콜은 인계 문서 "USB 프로토콜" 참고.
 """
 from __future__ import annotations
@@ -28,14 +28,14 @@ from slack_sdk.socket_mode import SocketModeClient
 from slack_sdk.socket_mode.request import SocketModeRequest
 from slack_sdk.socket_mode.response import SocketModeResponse
 
-KEYCHAIN_SERVICE = "desk-notifier"
+KEYCHAIN_SERVICE = "ping-pet"
 SERIAL_GLOB = "/dev/cu.usbmodem*"
 SERIAL_RETRY_SEC = 2
 TICK_SEC = 60
 TEXT_MAX = 80
 LINE_MAX = 4096
 BOARD_MAX_ITEMS = 16
-STATE_FILE = Path.home() / "Library/Application Support/desk-notifier/state.json"
+STATE_FILE = Path.home() / "Library/Application Support/ping-pet/state.json"
 
 # 처리 대상 메시지 subtype. 그 외(message_changed, channel_join 등)는 무시
 ACCEPT_SUBTYPES = {None, "thread_broadcast", "file_share", "me_message"}
@@ -49,7 +49,7 @@ EMOJI_MAP = {
     "sob": "ㅠㅠ", "cry": "ㅠ", "rocket": "(!)", "tada": "(축)",
 }
 
-log = logging.getLogger("desk-notifier")
+log = logging.getLogger("ping-pet")
 
 
 # ---------------------------------------------------------------- Slack 조회 캐시
