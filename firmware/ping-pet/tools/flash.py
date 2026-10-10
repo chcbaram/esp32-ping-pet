@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """USB(HS OTG) 하나로 굽기 — 버튼 없이.
 
-  앱이 돌고 있으면 DTR/RTS 리셋 신호로 ROM 다운로드 모드에 넣고 (cdc.c 의 cdcLineStateCallback),
+  앱(1209:E324)이 돌고 있으면 DTR/RTS 리셋 신호로 ROM 다운로드 모드에 넣고 (cdc.c 의 cdcLineStateCallback),
   ROM 다운로드 장치(303A:0012)가 다시 열거되면 esptool 로 쓴 뒤 앱으로 리셋한다.
 
   esptool 혼자서는 이 사이의 USB 재열거를 기다리지 못해 'Device not configured' 로 끝난다.
@@ -24,9 +24,9 @@ from serial import Serial
 from serial.tools import list_ports
 
 
-USB_VID      = 0x303A
-USB_PID_APP  = 0x4001     # 앱 (usb_desc.c)
-USB_PID_ROM  = 0x0012     # ROM USB-OTG 다운로드 모드
+USB_ID_APP   = (0x1209, 0xE324)   # 앱 (usb_desc.c, pid.codes)
+USB_ID_ROM   = (0x303A, 0x0012)   # ROM USB-OTG 다운로드 모드
+USB_ID_OLD   = (0x303A, 0x4001)   # pid.codes 로 옮기기 전 앱 (34a5f06 까지)
 
 PROJ_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUILD_DIR = os.path.join(PROJ_DIR, "build")
@@ -36,18 +36,18 @@ def col(s, c=36):
   return f"\033[{c}m{s}\033[0m" if sys.stdout.isatty() else s
 
 
-def find_port(pid, serial=None):
+def find_port(usb_id, serial=None):
   for p in list_ports.comports():
-    if p.vid == USB_VID and p.pid == pid:
+    if (p.vid, p.pid) == usb_id:
       if serial is None or (p.serial_number or "").lower() == serial.lower():
         return p
   return None
 
 
-def wait_port(pid, serial=None, timeout=8.0):
+def wait_port(usb_id, serial=None, timeout=8.0):
   pre = time.time()
   while time.time() - pre < timeout:
-    p = find_port(pid, serial)
+    p = find_port(usb_id, serial)
     if p is not None:
       return p
     time.sleep(0.1)
@@ -104,20 +104,20 @@ def main():
   if not os.path.isfile(os.path.join(BUILD_DIR, "flash_args")):
     sys.exit("build/flash_args 가 없다. 먼저 idf.py build")
 
-  p = find_port(USB_PID_APP) or find_port(USB_PID_ROM)
+  p = find_port(USB_ID_APP) or find_port(USB_ID_OLD) or find_port(USB_ID_ROM)
   if args.port:
     p = next((x for x in list_ports.comports() if x.device == args.port), p)
   if p is None:
-    sys.exit("보드를 찾지 못했다 (303A:4001 앱 / 303A:0012 ROM)")
+    sys.exit("보드를 찾지 못했다 (1209:E324 앱 / 303A:0012 ROM)")
 
   serial = p.serial_number
   print(f"{col('board')}      : {p.device}  {p.vid:04X}:{p.pid:04X}  SN={serial}")
 
   with BaramTerm(p.device, not args.no_baram):
-    if p.pid == USB_PID_APP:
+    if (p.vid, p.pid) != USB_ID_ROM:
       print(f"{col('reset')}      : 다운로드 모드로")
       enter_download(p.device)
-      rom = wait_port(USB_PID_ROM, serial)
+      rom = wait_port(USB_ID_ROM, serial)
       if rom is None:
         sys.exit("ROM 다운로드 장치(303A:0012)가 나타나지 않았다")
     else:
@@ -131,9 +131,9 @@ def main():
     if r.returncode != 0:
       sys.exit(r.returncode)
 
-    app = wait_port(USB_PID_APP, serial)
+    app = wait_port(USB_ID_APP, serial)
     if app is None:
-      sys.exit("앱(303A:4001)이 다시 나타나지 않았다")
+      sys.exit("앱(1209:E324)이 다시 나타나지 않았다")
     print(f"{col('app')}        : {app.device}")
     time.sleep(0.5)
 

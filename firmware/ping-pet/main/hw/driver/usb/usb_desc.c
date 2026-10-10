@@ -4,12 +4,20 @@
 #include "esp_mac.h"
 
 
-//   VID/PID 는 아직 Espressif 예제 값이다. pid.codes(0x1209) 로 옮길 때 여기만 바꾼다.
+//   VID 0x1209 는 pid.codes (오픈소스 하드웨어용 공용 VID). PID 는 레지스트리와 내 저장소에서 비어 있는 것을 골랐다.
+//   stm32h563-core (B563 ~ B566), weact-h750 (B750 ~ B752) 과 같이 칩 이름을 대역으로 쓴다 (E32 + P4).
 //
-//   **PID 는 모드(부트로더 / 앱)가 아니라 USB 구성을 따른다.** 구성이 바뀌면(HID, MSC 추가 등) PID 를 바꾼다.
-//   같은 VID/PID 로 구성만 바뀌면 Windows 가 캐시한 디스크립터로 잘못 붙는다.
-#define USB_VID           0x303A
-#define USB_PID           0x4001
+//   **PID 는 모드가 아니라 USB 구성을 따른다.**
+//
+//     E324  CDC                 앱 (지금)
+//     E325  CDC + HID           앱 + 웹 설정 채널 (예약, 다음 단계)
+//     E326  (예약)
+//     E327  (예약)
+//
+//   같은 VID/PID 로 구성만 바뀌면 Windows 가 캐시한 디스크립터로 잘못 붙는다. 구성이 바뀌면 PID 를 바꾼다.
+//   ROM 다운로드 모드는 칩이 정한 303A:0012 다 (tools/flash.py).
+#define USB_VID           0x1209
+#define USB_PID           0xE324
 #define USB_BCD           0x0200
 
 
