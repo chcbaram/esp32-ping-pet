@@ -4,6 +4,7 @@
 build/
 managed_components/
 sdkconfig.old
+dist/
 
 # Python
 __pycache__/

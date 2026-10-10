@@ -9,15 +9,20 @@
 
   baram-term 이 포트를 열고 있으면 baram-ctl 로 잠시 놓게 한다 (--no-baram 으로 끈다).
 
-  쓰는 법 (ESP-IDF 환경에서):
-    python3 tools/flash.py              # build/ 의 이미지를 쓴다
-    python3 tools/flash.py --port /dev/cu.usbmodem114101
+  쓰는 법
+    개발 (ESP-IDF 환경)     python3 tools/flash.py [--fonts]          # build/ 의 이미지
+    릴리즈 (ESP-IDF 없이)   pip install esptool pyserial
+                           python3 flash.py --fw ping-pet-fw-V….bin [--fonts-bin ping-pet-fonts-V….bin]
+
+  릴리즈 펌웨어는 0x0 부터 합친 이미지(tools/release.py)다. 설정이 든 NVS 영역은 건너뛰고 쓴다
+  (합친 이미지에는 그 자리가 0xFF 로 채워져 있어 그대로 쓰면 글자 크기 · 밝기 설정이 지워진다).
 """
 import argparse
 import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 
 from serial import Serial
@@ -88,19 +93,57 @@ def enter_download(port):
 
 
 def esptool_cmd():
+  """pip 로 설치한 esptool 을 먼저, 없으면 ESP-IDF 안의 것을 쓴다"""
+  try:
+    import esptool  # noqa: F401
+    return [sys.executable, "-m", "esptool"]
+  except ImportError:
+    pass
   idf_path = os.environ.get("IDF_PATH")
-  if not idf_path:
-    sys.exit("IDF_PATH 가 없다. ESP-IDF 환경(export.sh)에서 실행한다.")
-  return [sys.executable, os.path.join(idf_path, "components", "esptool_py", "esptool", "esptool.py")]
+  if idf_path:
+    return [sys.executable, os.path.join(idf_path, "components", "esptool_py", "esptool", "esptool.py")]
+  sys.exit("esptool 이 없다. pip install esptool  (또는 ESP-IDF 환경에서 실행)")
+
+
+# 파티션 위치. 릴리즈 폴더에는 partitions.csv 가 없으므로 기본값을 둔다 (partitions.csv 와 같게)
+PART_DEFAULT = {"nvs": (0x9000, 0x4000), "fonts": (0x810000, 0x300000)}
+
+
+def partition(name):
+  """partitions.csv 의 (offset, size). 없으면 기본값"""
+  path = os.path.join(PROJ_DIR, "partitions.csv")
+  if os.path.isfile(path):
+    for line in open(path):
+      c = [x.strip() for x in line.split("#")[0].split(",")]
+      if len(c) >= 5 and c[0] == name:
+        size = c[4]
+        size = int(size[:-1]) << 20 if size.endswith("M") else int(size[:-1]) << 10 if size.endswith("K") else int(size, 0)
+        return int(c[3], 0), size
+  return PART_DEFAULT[name]
 
 
 def fonts_offset():
-  """partitions.csv 의 fonts 파티션 위치"""
-  for line in open(os.path.join(PROJ_DIR, "partitions.csv")):
-    col = [c.strip() for c in line.split("#")[0].split(",")]
-    if len(col) >= 4 and col[0] == "fonts":
-      return int(col[3], 0)
-  sys.exit("partitions.csv 에 fonts 파티션이 없다")
+  return partition("fonts")[0]
+
+
+def fw_segments(path, tmp):
+  """합친 이미지를 NVS 를 뺀 조각으로 나눈다 → [주소, 파일, ...]"""
+  data = open(path, "rb").read()
+  nvs_off, nvs_size = partition("nvs")
+  start = 0
+  while start < len(data) and data[start:start + 0x1000] == b"\xff" * min(0x1000, len(data) - start):
+    start += 0x1000                       # 앞의 빈 칸 (0x0 ~ 부트로더 0x2000) 은 쓰지 않는다
+  if data[0x2000:0x2001] != b"\xe9":
+    sys.exit(f"{path} : 0x2000 에 부트로더가 없다. tools/release.py 로 만든 합친 이미지인지 확인")
+
+  out = []
+  for a, b in ((start, nvs_off), (nvs_off + nvs_size, len(data))):
+    if b <= a:
+      continue
+    f = os.path.join(tmp, f"fw_{a:06x}.bin")
+    open(f, "wb").write(data[a:b])
+    out += [hex(a), f]
+  return out
 
 
 def fonts_build():
@@ -116,10 +159,16 @@ def main():
   ap.add_argument("--no-baram", action="store_true", help="baram-term 포트 놓기/다시 열기를 하지 않는다")
   ap.add_argument("--compress", action="store_true", help="압축해서 쓴다 (기본은 압축하지 않는다, 아래 주석)")
   ap.add_argument("--fonts", action="store_true", help="폰트 파티션도 쓴다 (tools/fonts.py 로 만든다). 폰트가 바뀔 때만")
+  ap.add_argument("--fw", metavar="BIN", help="릴리즈 펌웨어 (합친 이미지). 없으면 build/ 의 이미지")
+  ap.add_argument("--fonts-bin", metavar="BIN", help="릴리즈 폰트 이미지")
   args = ap.parse_args()
 
-  if not os.path.isfile(os.path.join(BUILD_DIR, "flash_args")):
-    sys.exit("build/flash_args 가 없다. 먼저 idf.py build")
+  if args.fw is None and not os.path.isfile(os.path.join(BUILD_DIR, "flash_args")):
+    sys.exit("build/flash_args 가 없다. 먼저 idf.py build  (릴리즈 파일이면 --fw)")
+  for f in (args.fw, args.fonts_bin):
+    if f and not os.path.isfile(f):
+      sys.exit(f"{f} 가 없다")
+  tmp = tempfile.mkdtemp(prefix="ping-pet-")
 
   p = find_port(USB_ID_APP) or find_port(USB_ID_OLD) or find_port(USB_ID_ROM)
   if args.port:
@@ -141,8 +190,13 @@ def main():
       rom = p
     print(f"{col('download')}   : {rom.device}")
 
-    images = ["@flash_args"]
-    if args.fonts:
+    if args.fw:
+      images = fw_segments(os.path.abspath(args.fw), tmp)
+    else:
+      images = ["@flash_args"]
+    if args.fonts_bin:
+      images += [hex(fonts_offset()), os.path.abspath(args.fonts_bin)]
+    elif args.fonts:
       images += [hex(fonts_offset()), fonts_build()]
 
     cmd = esptool_cmd() + ["--chip", "esp32p4", "-p", rom.device, "-b", str(args.baud),
@@ -151,7 +205,8 @@ def main():
     # USB-OTG 다운로드에서 압축 쓰기는 이미지가 커지면 (약 3 MB, 폰트 포함) 스텁이
     #   'Failed to write compressed data to flash after seq 575 (result was C900: Too much data)'
     # 로 멈춘다. 압축하지 않으면 된다. HS USB 라 속도 차이는 크지 않다.
-    r = subprocess.run(cmd, cwd=BUILD_DIR)
+    r = subprocess.run(cmd, cwd=BUILD_DIR if os.path.isdir(BUILD_DIR) else None)
+    shutil.rmtree(tmp, ignore_errors=True)
     if r.returncode != 0:
       sys.exit(r.returncode)
 
