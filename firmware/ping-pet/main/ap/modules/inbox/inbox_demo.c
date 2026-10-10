@@ -8,9 +8,9 @@
  *
  *   1  여유     8 s   목록 비움, 오늘 통계
  *   2  배고픔   8 s   DM 12 분 전, 멘션 4 분 전
- *   3  울음     8 s   가상 시계 +26 분, 2 건 더 (최장 38 분)
+ *   3  울음    14 s   가상 시계 +26 분, 6 건 더 (모두 8 건, 화면을 넘쳐 스크롤된다)
  *   4  냠냠     5 s   가장 오래된 DM 에 답장 → 남은 요청
- *   5  냠냠     6 s   나머지에 차례로 답장 → 여유, 처음으로
+ *   5  냠냠    10 s   나머지 7 건에 1.2 초 간격으로 답장 → 여유, 처음으로
  */
 
 
@@ -35,9 +35,9 @@ static const demo_step_t step_tbl[] =
 {
   {8000, demoStepIdle},
   {8000, demoStepHungry},
-  {8000, demoStepCry},
+  {14000, demoStepCry},
   {5000, demoStepEat},
-  {6000, demoStepDone},
+  {10000, demoStepDone},
 };
 #define STEP_CNT    (sizeof(step_tbl) / sizeof(step_tbl[0]))
 
@@ -149,6 +149,20 @@ void demoStepCry(void)
   demoItem(&item, "C02:1", INBOX_KIND_MENTION, "최유나", "#robot-ops",
            "@나 내일 회의 시간 괜찮으세요?", 3 * 60);
   inboxAdd(&item);
+
+  // 화면을 넘치게 : 스크롤해 보는 용도
+  demoItem(&item, "D03", INBOX_KIND_DM, "정다은", "DM",
+           "견적서 검토 부탁드려요", 9 * 60);
+  inboxAdd(&item);
+  demoItem(&item, "G01", INBOX_KIND_MPIM, "한도윤", "그룹 DM",
+           "점심 메뉴 투표해 주세요", 7 * 60);
+  inboxAdd(&item);
+  demoItem(&item, "C03:1", INBOX_KIND_MENTION, "오세진", "#fw-dev",
+           "@나 OTA 브랜치 머지해도 될까요?", 5 * 60);
+  inboxAdd(&item);
+  demoItem(&item, "D04", INBOX_KIND_DM, "윤하린", "DM",
+           "배터리 시험 결과 공유드립니다", 1 * 60);
+  inboxAdd(&item);
 }
 
 void demoStepEat(void)
@@ -156,7 +170,7 @@ void demoStepEat(void)
   demoAnswer("D01", INBOX_KIND_DM, "김민수", "DM", 38 * 60);
 }
 
-/* 나머지 셋에 1.5 초 간격으로 답장한다 (demoUpdate 가 sub_cnt 로 나눠 부른다) */
+/* 나머지 일곱에 1.2 초 간격으로 답장한다 (demoUpdate 가 sub_cnt 로 나눠 부른다) */
 void demoStepDone(void)
 {
   sub_cnt = 0;
@@ -165,7 +179,7 @@ void demoStepDone(void)
 
 static void demoStepDoneSub(void)
 {
-  if (millis() - sub_ms < 1500 || sub_cnt >= 3)
+  if (millis() - sub_ms < 1200 || sub_cnt >= 7)
     return;
   sub_ms = millis();
 
@@ -174,6 +188,10 @@ static void demoStepDoneSub(void)
     case 0: demoAnswer("D02",   INBOX_KIND_DM,      "박준호", "DM",         16 * 60); break;
     case 1: demoAnswer("C01:1", INBOX_KIND_MENTION, "이지은", "#hw-team",   31 * 60); break;
     case 2: demoAnswer("C02:1", INBOX_KIND_MENTION, "최유나", "#robot-ops", 5 * 60);  break;
+    case 3: demoAnswer("D03",   INBOX_KIND_DM,      "정다은", "DM",         10 * 60); break;
+    case 4: demoAnswer("G01",   INBOX_KIND_MPIM,    "한도윤", "그룹 DM",    8 * 60);  break;
+    case 5: demoAnswer("C03:1", INBOX_KIND_MENTION, "오세진", "#fw-dev",    6 * 60);  break;
+    case 6: demoAnswer("D04",   INBOX_KIND_DM,      "윤하린", "DM",         2 * 60);  break;
   }
 }
 

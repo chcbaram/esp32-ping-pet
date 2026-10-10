@@ -24,8 +24,10 @@
 
 #define BAR_H             48
 #define LEFT_W            340
-#define CARD_MAX          4
+#define CARD_MAX          INBOX_ITEM_MAX     // 보드가 받는 만큼 모두. 넘치면 스크롤한다
+#define SCROLL_HOME_MS    30000              // 30 초 손대지 않으면 맨 위(가장 오래된 요청)로
 #define VIEW_PERIOD_MS    200
+#define CONFIRM_MS        15000              // 확인 창을 그대로 두면 15 초 뒤 취소
 
 #define PIXEL_SIZE_CLOCK  28
 
@@ -66,6 +68,16 @@ static lv_obj_t *right;
 
 static card_t    cards[CARD_MAX];
 static int       card_cnt = 0;
+
+static lv_obj_t *card_list = NULL;        // 스크롤하는 카드 목록 (없으면 NULL)
+static lv_obj_t *more_row  = NULL;        // "▼ N건 더" (아래에 가려진 카드)
+static lv_obj_t *lbl_more  = NULL;
+static int32_t   saved_scroll = 0;        // 패널을 다시 만들 때 스크롤 위치를 되돌린다
+static uint32_t  scroll_ms = 0;
+
+static lv_obj_t *confirm = NULL;          // "답장 없이 치울까요?" 확인 창 (없으면 NULL)
+static char      confirm_id[48];
+static uint32_t  confirm_ms = 0;
 
 static uint32_t  active_ms  = 0;          // 마지막으로 만졌거나 새 요청이 온 때
 static uint8_t   last_count = 0;
@@ -160,15 +172,141 @@ static lv_obj_t *row(lv_obj_t *parent, int32_t gap)
 
 //-- 카드
 //
+//-- 답장 없이 치우기 확인 창
+//
+static void confirmClose(void)
+{
+  if (confirm != NULL)
+  {
+    lv_obj_delete_async(confirm);          // 버튼 이벤트 안에서 불리므로 나중에 지운다
+    confirm = NULL;
+  }
+}
+
+static void onConfirm(lv_event_t *e)
+{
+  bool ok = (bool)(intptr_t)lv_event_get_user_data(e);
+
+  if (confirm == NULL)
+    return;
+  if (ok)
+    inboxRequestAck(confirm_id);
+  confirmClose();
+}
+
+static lv_obj_t *confirmButton(lv_obj_t *parent, const char *text, bool primary, bool ok)
+{
+  lv_obj_t *btn = uiCreateBox(parent);
+  lv_obj_t *lbl;
+
+  lv_obj_set_size(btn, 180, UI_TOUCH_MIN);
+  lv_obj_set_clickable(btn, true);
+  lv_obj_set_style_border_width(btn, UI_BORDER, 0);
+  lv_obj_set_style_border_color(btn, lv_color_hex(UI_COLOR_INK), 0);
+  lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(btn, lv_color_hex(primary ? UI_COLOR_INK : UI_COLOR_CARD), 0);
+  lv_obj_set_style_translate_y(btn, 2, LV_STATE_PRESSED);
+  lv_obj_add_event_cb(btn, onConfirm, LV_EVENT_CLICKED, (void *)(intptr_t)ok);
+
+  lbl = uiCreateLabel(btn, text, uiFont(20), primary ? UI_COLOR_BG : UI_COLOR_INK);
+  lv_obj_center(lbl);
+  return btn;
+}
+
+/* 1 초 누르기는 되돌릴 수 없으니 한 번 묻는다. 손가락은 아직 카드 위라 손을 떼도 버튼이 눌리지 않는다 */
+static void confirmOpen(const card_t *p_card)
+{
+  lv_obj_t *box, *obj, *btns;
+  char      buf[160];
+
+  confirmClose();
+  strncpy(confirm_id, p_card->id, sizeof(confirm_id) - 1);
+  confirm_id[sizeof(confirm_id) - 1] = 0;
+  confirm_ms = millis();
+
+  // 화면 전체를 덮는 반투명 막 : 뒤의 카드가 눌리지 않게 하고, 막을 누르면 취소
+  confirm = uiCreateBox(scr);
+  lv_obj_set_floating(confirm, true);
+  lv_obj_set_size(confirm, LV_PCT(100), LV_PCT(100));
+  lv_obj_set_pos(confirm, 0, 0);
+  lv_obj_set_clickable(confirm, true);
+  lv_obj_set_style_bg_color(confirm, lv_color_hex(UI_COLOR_INK), 0);
+  lv_obj_set_style_bg_opa(confirm, LV_OPA_50, 0);
+  lv_obj_add_event_cb(confirm, onConfirm, LV_EVENT_CLICKED, (void *)(intptr_t)false);
+
+  box = uiCreateBox(confirm);
+  lv_obj_set_size(box, 520, LV_SIZE_CONTENT);
+  lv_obj_center(box);
+  lv_obj_set_clickable(box, true);              // 창 안을 눌러도 취소되지 않게
+  lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
+  lv_obj_set_style_bg_color(box, lv_color_hex(UI_COLOR_BG), 0);
+  lv_obj_set_style_border_width(box, UI_BORDER, 0);
+  lv_obj_set_style_border_color(box, lv_color_hex(UI_COLOR_INK), 0);
+  lv_obj_set_style_pad_all(box, UI_SPACE_XL, 0);
+  lv_obj_set_style_pad_row(box, UI_SPACE_MD, 0);
+  lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+  uiCreateLabel(box, "답장 없이 치울까요?", uiFont(24), UI_COLOR_INK);
+
+  obj = uiCreateLabel(box, lv_label_get_text(p_card->lbl_title), uiFont(18), UI_COLOR_INK);
+  lv_obj_set_width(obj, LV_PCT(100));
+  lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(obj, LV_LABEL_LONG_MODE_DOTS);
+
+  snprintf(buf, sizeof(buf), "%s", lv_label_get_text(p_card->lbl_text));
+  obj = uiCreateLabel(box, buf, uiFont(16), UI_COLOR_INK_DIM);
+  lv_obj_set_width(obj, LV_PCT(100));
+  lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(obj, LV_LABEL_LONG_MODE_DOTS);
+
+  uiCreateLabel(box, "슬랙에는 아무것도 보내지 않아요", uiFont(15), UI_COLOR_INK_DIM);
+
+  btns = row(box, UI_SPACE_LG);
+  lv_obj_set_size(btns, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_set_style_pad_top(btns, UI_SPACE_SM, 0);
+  confirmButton(btns, "취소", false, false);
+  confirmButton(btns, "치우기", true, true);
+}
+
+/* 열린 채 오래 두었거나, 그 사이 답장해서 목록에서 빠졌으면 닫는다 */
+static void confirmUpdate(void)
+{
+  bool found = false;
+
+  if (confirm == NULL)
+    return;
+
+  for (int i=0; i<view.count; i++)
+  {
+    if (strcmp(view.item[i].id, confirm_id) == 0)
+    {
+      found = true;
+      break;
+    }
+  }
+  if (found == false || millis() - confirm_ms >= CONFIRM_MS)
+    confirmClose();
+}
+
 static void onCard(lv_event_t *e)
 {
   card_t         *p_card = (card_t *)lv_event_get_user_data(e);
   lv_event_code_t code   = lv_event_get_code(e);
+  lv_indev_t     *indev  = lv_indev_active();
 
+  // 스크롤하다 손을 뗀 것이면 누른 것으로 보지 않는다 (stm32h7-gfx 13 편 "스크롤했는데 선택된다").
+  // 길게 누르기는 "답장 없이 처리" 라 잘못 눌리면 곤란하다
+  if (indev != NULL && lv_indev_get_scroll_obj(indev) != NULL)
+    return;
+
+  // TODO: 누른 결과를 화면 아래에 2 초 알림으로 보여 준다. 지금은 맥 화면을 보지 않으면 눌렸는지 모른다
+  //   연결됨 "맥의 Slack 에서 열었어요" / 끊김 "맥과 연결되지 않았어요" / 데모 "데모: 맥에서 대화가 열려요"
+  //   확인 창에서 치우기 "답장 없이 치웠어요"
   if (code == LV_EVENT_SHORT_CLICKED)
     inboxRequestOpen(p_card->id);
   else if (code == LV_EVENT_LONG_PRESSED)
-    inboxRequestAck(p_card->id);
+    confirmOpen(p_card);
 }
 
 static void cardStyle(card_t *p_card, int level)
@@ -251,46 +389,60 @@ static void cardsRefresh(void)
   }
 }
 
-static void moreLabel(lv_obj_t *parent, int more)
+/* 아래에 가려진 카드 수 → "▼ N건 더". 끝까지 내리면 숨긴다 */
+static void moreRefresh(void)
 {
-  char buf[32];
+  lv_area_t view_area, a;
+  int       hidden = 0;
 
-  if (more <= 0)
+  if (card_list == NULL || more_row == NULL)
     return;
-  snprintf(buf, sizeof(buf), "+%d건 더 있어요", more);
-  uiCreateLabel(parent, buf, uiFont(15), UI_COLOR_INK_DIM);
-}
 
-
-/* 방금 넣은 카드가 오른쪽 패널 안에 들어가는지. reserve 는 아래에 남겨 둘 높이 ("+N건" 줄)
-   글자 크기를 키우면 카드가 커지므로 넣어 보고 넘치면 뺀다 */
-static bool cardFits(lv_obj_t *p_card, int32_t reserve)
-{
-  lv_area_t a, r;
-
-  lv_obj_update_layout(right);
-  lv_obj_get_coords(p_card, &a);
-  lv_obj_get_content_coords(right, &r);
-  return a.y2 <= r.y2 - reserve;
-}
-
-static int cardsAdd(lv_obj_t *parent, int from, int max, bool compact)
-{
-  int32_t reserve = lv_font_get_line_height(uiFont(15)) + 12;
-  int     shown   = 0;
-
-  for (int i=from; i<view.count && shown<max; i++)
+  lv_obj_get_coords(card_list, &view_area);
+  for (int i=0; i<card_cnt; i++)
   {
-    cardCreate(parent, &view.item[i], compact);
-    if (cardFits(cards[card_cnt-1].obj, (i < view.count - 1) ? reserve : 0) != true)
-    {
-      lv_obj_delete(cards[card_cnt-1].obj);
-      card_cnt--;
-      break;
-    }
-    shown++;
+    lv_obj_get_coords(cards[i].obj, &a);
+    if (a.y2 > view_area.y2 + 2)       // 아래쪽이 조금이라도 잘린 카드
+      hidden++;
   }
-  return shown;
+  lv_obj_set_hidden(more_row, hidden == 0);
+  if (hidden > 0)
+    lv_label_set_text_fmt(lbl_more, "%d건 더 (아래로 밀어 보기)", hidden);
+}
+
+static void onListScroll(lv_event_t *e)
+{
+  LV_UNUSED(e);
+  scroll_ms = millis();
+  moreRefresh();
+}
+
+/* 카드 목록 : 모두 넣고 넘치면 위아래로 스크롤한다 */
+static lv_obj_t *cardList(lv_obj_t *parent, bool compact)
+{
+  card_list = column(parent, compact ? 8 : 12);
+  lv_obj_set_width(card_list, LV_PCT(100));
+  lv_obj_set_flex_grow(card_list, 1);
+  lv_obj_set_scrollable(card_list, true);
+  lv_obj_set_scroll_dir(card_list, LV_DIR_VER);
+  lv_obj_set_scrollbar_mode(card_list, LV_SCROLLBAR_MODE_ACTIVE);
+  lv_obj_set_style_bg_color(card_list, lv_color_hex(UI_COLOR_INK), LV_PART_SCROLLBAR);
+  lv_obj_set_style_pad_right(card_list, 6, 0);           // 스크롤 막대 자리
+  lv_obj_add_event_cb(card_list, onListScroll, LV_EVENT_SCROLL, NULL);
+
+  for (int i=0; i<view.count && card_cnt<CARD_MAX; i++)
+  {
+    cardCreate(card_list, &view.item[i], compact);
+  }
+
+  // ▼ N건 더 (목록 바로 아래)
+  more_row = row(parent, 6);
+  lv_obj_set_size(more_row, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
+  lv_obj_t *sym = uiCreateLabel(more_row, LV_SYMBOL_DOWN, &lv_font_montserrat_20, UI_COLOR_INK_DIM);
+  LV_UNUSED(sym);
+  lbl_more = uiCreateLabel(more_row, "", uiFont(15), UI_COLOR_INK_DIM);
+  lv_obj_set_hidden(more_row, true);
+  return card_list;
 }
 
 
@@ -380,22 +532,14 @@ static void buildIdle(void)
 static void buildWaiting(bool cry)
 {
   bool compact = cry || view.count > 2;
-  int  show;
-  lv_obj_t *spacer;
 
   if (cry == false)
     uiCreateLabel(right, "밥 주세요 (답장 대기)", uiFont(20), UI_COLOR_INK);
 
-  show = cardsAdd(right, 0, CARD_MAX, compact);
-  moreLabel(right, view.count - show);
+  cardList(right, compact);
 
-  if (compact == false && show == view.count)
-  {
-    spacer = uiCreateBox(right);
-    lv_obj_set_flex_grow(spacer, 1);
-    lv_obj_set_width(spacer, 1);
+  if (compact == false)
     uiCreateLabel(right, "카드를 누르면 맥의 슬랙에서 해당 대화가 열려요", uiFont(15), UI_COLOR_INK_DIM);
-  }
 }
 
 static void checkIcon(lv_obj_t *parent)
@@ -415,7 +559,6 @@ static void buildEat(void)
   lv_obj_t *banner, *col;
   char      buf[160];
   int       gain = view.eat_full_to - view.eat_full_from;
-  int       show;
 
   banner = row(right, 12);
   lv_obj_set_width(banner, LV_PCT(100));
@@ -444,14 +587,23 @@ static void buildEat(void)
   col = uiCreateLabel(right, view.count > 0 ? "남은 요청" : "남은 요청이 없어요", uiFont(17), UI_COLOR_INK_DIM);
   lv_obj_set_style_margin_top(col, 4, 0);
 
-  show = cardsAdd(right, 0, 3, view.count > 1);
-  moreLabel(right, view.count - show);
+  if (view.count > 0)
+    cardList(right, view.count > 1);
 }
 
 void pingpetBuildRight(void)
 {
+  int32_t scroll = 0;
+
+  // 같은 상태에서 목록만 바뀌었으면 보던 위치를 지킨다 (새 요청이 와도 맨 위로 튀지 않게)
+  if (card_list != NULL && (int)view.state == shown_state)
+    scroll = lv_obj_get_scroll_y(card_list);
+
   lv_obj_clean(right);
-  card_cnt = 0;
+  card_cnt  = 0;
+  card_list = NULL;
+  more_row  = NULL;
+  lbl_more  = NULL;
 
   switch (view.state)
   {
@@ -461,6 +613,15 @@ void pingpetBuildRight(void)
     case INBOX_STATE_EAT:    buildEat();           break;
   }
   cardsRefresh();
+
+  if (card_list != NULL)
+  {
+    lv_obj_update_layout(right);
+    if (scroll > 0)
+      lv_obj_scroll_to_y(card_list, scroll, LV_ANIM_OFF);
+    moreRefresh();
+  }
+  saved_scroll = scroll;
 }
 
 
@@ -592,13 +753,14 @@ void pingpetRefresh(bool force)
     if ((int)view.state != shown_state)
       applyState();
     shown_version = view.version;
+    pingpetBuildRight();                  // shown_state 를 보고 스크롤을 지킬지 정한다
     shown_state   = view.state;
-    pingpetBuildRight();
   }
 
   refreshBar();
   refreshGauge();
   cardsRefresh();
+  moreRefresh();
 }
 
 
@@ -640,7 +802,8 @@ static bool pingpetEnter(lv_obj_t *p_scr)
 {
   lv_obj_t *obj, *body, *gauge;
 
-  scr = p_scr;
+  scr     = p_scr;
+  confirm = NULL;                         // 이전 화면과 함께 지워졌다
   uiApplyScreen(scr);
   lv_obj_set_flex_flow(scr, LV_FLEX_FLOW_COLUMN);
 
@@ -721,6 +884,13 @@ static void pingpetUpdate(void)
 
   backlightUpdate();
 
+  // 30 초 동안 손대지 않으면 맨 위(가장 오래된 요청)로 돌아간다
+  if (card_list != NULL && lv_obj_get_scroll_y(card_list) > 0 &&
+      millis() - scroll_ms >= SCROLL_HOME_MS && lv_display_get_inactive_time(NULL) >= SCROLL_HOME_MS)
+  {
+    lv_obj_scroll_to_y(card_list, 0, LV_ANIM_ON);
+  }
+
   // 화면을 누르고 있는 동안은 패널을 다시 만들지 않는다 (누르던 카드가 지워지면 길게 누르기가 끊긴다)
   lv_indev_t *indev = lv_port_indev_get_touch();
   if (indev != NULL && lv_indev_get_state(indev) == LV_INDEV_STATE_PRESSED)
@@ -733,6 +903,7 @@ static void pingpetUpdate(void)
   }
 
   pingpetRefresh(false);
+  confirmUpdate();
 }
 
 APP_DEF(pingpet)
