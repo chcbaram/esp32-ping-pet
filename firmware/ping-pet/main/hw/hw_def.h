@@ -13,6 +13,7 @@
 #define _USE_HW_RTOS
 #define _USE_HW_USB
 #define _USE_HW_CDC
+#define _USE_HW_NVS
 
 
 //-- LCD : ST7701S 480x800 MIPI-DSI, 화면은 가로 800x480 으로 돌려 쓴다 (docs/22)
@@ -80,6 +81,7 @@
 #define _USE_CLI_HW_GT911           1
 #define _USE_CLI_HW_I2C             1
 #define _USE_CLI_HW_LVGL            1
+#define _USE_CLI_HW_NVS             1
 
 
 #endif

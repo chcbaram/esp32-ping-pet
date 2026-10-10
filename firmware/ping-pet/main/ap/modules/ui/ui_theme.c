@@ -23,7 +23,7 @@ static ttf_t ttf_jua;
 static ttf_t ttf_silkscreen;
 
 
-#define FONT_MAX          16
+#define FONT_MAX          40      // (종류, 크기) 조합. 글자 크기 단계를 바꾸면 새 크기가 더 생긴다
 #define FONT_CACHE_CNT    256     // 크기마다 글리프 캐시 (한 화면에 나오는 한글은 수십 자)
 
 
@@ -55,6 +55,11 @@ static const ui_palette_t palette =
 
 static font_entry_t font_tbl[FONT_MAX];
 static int          font_cnt = 0;
+
+static const uint8_t font_pct[UI_FONT_LEVEL_MAX]   = {100, 115, 130};
+static const char   *font_name[UI_FONT_LEVEL_MAX]  = {"보통", "크게", "아주 크게"};
+static uint8_t       font_level = 0;
+static uint8_t       brightness = 100;
 
 
 
@@ -95,7 +100,15 @@ bool uiThemeInit(void)
     ret &= fontsFind(p_img, p_part->size, "Silkscreen-Regular.ttf", &ttf_silkscreen);
   }
 
+  // 저장해 둔 글자 크기 · 밝기
+  if (nvsGet("font", &font_level, 1) != true || font_level >= UI_FONT_LEVEL_MAX)
+    font_level = 0;
+  if (nvsGet("bl", &brightness, 1) != true || brightness < 10 || brightness > 100)
+    brightness = 100;
+  lcdSetBackLight(brightness);
+
   logPrintf("[%s] uiThemeInit()\n", ret ? "OK" : "E_");
+  logPrintf("     font level %d (%d %%), brightness %d %%\n", font_level, font_pct[font_level], brightness);
   if (ret)
     logPrintf("     fonts : Jua %d KB, Silkscreen %d KB\n", (int)ttf_jua.size / 1024, (int)ttf_silkscreen.size / 1024);
   else
@@ -169,8 +182,45 @@ static lv_font_t *uiFontGet(bool is_pixel, int32_t size)
 
 /* Jua 에는 … (U+2026) 와 · (U+00B7) 이 없다. 같은 크기 Silkscreen 을 fallback 으로 단다.
  * 반대(Silkscreen → Jua)는 달지 않는다. 서로 물리면 둘 다 없는 글자에서 끝없이 돈다. */
+static int32_t uiFontScale(int32_t size)
+{
+  return (size * font_pct[font_level] + 50) / 100;
+}
+
+uint8_t uiThemeGetFontLevel(void)
+{
+  return font_level;
+}
+
+void uiThemeSetFontLevel(uint8_t level)
+{
+  if (level >= UI_FONT_LEVEL_MAX || level == font_level)
+    return;
+  font_level = level;
+  nvsSet("font", &font_level, 1);
+}
+
+const char *uiThemeGetFontLevelName(uint8_t level)
+{
+  return (level < UI_FONT_LEVEL_MAX) ? font_name[level] : "-";
+}
+
+uint8_t uiThemeGetBrightness(void)
+{
+  return brightness;
+}
+
+void uiThemeSetBrightness(uint8_t percent)
+{
+  brightness = constrain(percent, 10, 100);
+  lcdSetBackLight(brightness);
+  nvsSet("bl", &brightness, 1);
+}
+
 const lv_font_t *uiFont(int32_t size)
 {
+  size = uiFontScale(size);
+
   lv_font_t *font = uiFontGet(false, size);
 
   if (font == NULL)
@@ -184,7 +234,7 @@ const lv_font_t *uiFont(int32_t size)
 
 const lv_font_t *uiFontPixel(int32_t size)
 {
-  lv_font_t *font = uiFontGet(true, size);
+  lv_font_t *font = uiFontGet(true, uiFontScale(size));
 
   return (font != NULL) ? font : &lv_font_montserrat_20;
 }

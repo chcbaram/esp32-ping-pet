@@ -42,6 +42,7 @@ static const demo_step_t step_tbl[] =
 #define STEP_CNT    (sizeof(step_tbl) / sizeof(step_tbl[0]))
 
 static bool          is_on = false;
+static volatile int  demo_req = -1;      // 다른 태스크(ui)의 켜기 · 끄기 요청. 메인 태스크(inboxDemoUpdate)가 처리한다
 static int           step = 0;
 static uint32_t      step_ms = 0;
 static uint32_t      sub_ms = 0;
@@ -214,6 +215,15 @@ static void demoStop(void)
 
 void inboxDemoUpdate(void)
 {
+  int req = demo_req;
+
+  if (req >= 0)
+  {
+    demo_req = -1;
+    if (req == 1 && is_on == false) demoStart();
+    if (req == 0 && is_on == true)  demoStop();
+  }
+
   if (is_on != true)
     return;
 
@@ -238,18 +248,24 @@ void inboxDemoUpdate(void)
   }
 }
 
+/* 어느 태스크에서든 부를 수 있다. 실제 전환은 메인 태스크의 inboxDemoUpdate() 가 한다 */
+void inboxDemoSet(bool enable)
+{
+  demo_req = enable ? 1 : 0;
+}
+
 void inboxDemoCli(cli_args_t *args)
 {
   bool ret = false;
 
   if (args->argc == 1 && args->isStr(0, "on"))
   {
-    demoStart();
+    inboxDemoSet(true);
     ret = true;
   }
   if (args->argc == 1 && args->isStr(0, "off"))
   {
-    demoStop();
+    inboxDemoSet(false);
     ret = true;
   }
   if (args->argc == 1 && args->isStr(0, "info"))

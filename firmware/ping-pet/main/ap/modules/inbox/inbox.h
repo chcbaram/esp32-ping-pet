@@ -119,6 +119,10 @@ void     inboxTick(uint32_t now, int32_t tz, const inbox_stats_t *p_stats);
 void     inboxClear(void);
 void     inboxSetDemo(bool enable);
 
+// 데모 모드 (inbox_demo.c)
+void     inboxDemoSet(bool enable);
+bool     inboxDemoIsOn(void);
+
 // 화면이 부른다
 void     inboxGetView(inbox_view_t *p_view);
 void     inboxRequestOpen(const char *id);   // 카드 탭 : 맥 슬랙에서 대화 열기

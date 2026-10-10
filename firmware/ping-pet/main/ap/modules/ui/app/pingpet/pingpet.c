@@ -3,6 +3,7 @@
 #include "pet.h"
 #include "inbox.h"
 #include "lvgl/lv_port_indev.h"
+#include "launcher.h"
 
 
 #ifdef _USE_HW_LVGL
@@ -27,6 +28,9 @@
 #define VIEW_PERIOD_MS    200
 
 #define PIXEL_SIZE_CLOCK  28
+
+#define DIM_AFTER_MS      (10 * 60 * 1000)   // 미응답 0 건으로 10 분 동안 손대지 않으면
+#define DIM_PERCENT       30                 // 백라이트를 30 % 로 (인계 문서)
 
 
 typedef struct
@@ -62,6 +66,10 @@ static lv_obj_t *right;
 
 static card_t    cards[CARD_MAX];
 static int       card_cnt = 0;
+
+static uint32_t  active_ms  = 0;          // 마지막으로 만졌거나 새 요청이 온 때
+static uint8_t   last_count = 0;
+static bool      is_dimmed  = false;
 
 static const char *pet_msg[] =
 {
@@ -254,6 +262,38 @@ static void moreLabel(lv_obj_t *parent, int more)
 }
 
 
+/* 방금 넣은 카드가 오른쪽 패널 안에 들어가는지. reserve 는 아래에 남겨 둘 높이 ("+N건" 줄)
+   글자 크기를 키우면 카드가 커지므로 넣어 보고 넘치면 뺀다 */
+static bool cardFits(lv_obj_t *p_card, int32_t reserve)
+{
+  lv_area_t a, r;
+
+  lv_obj_update_layout(right);
+  lv_obj_get_coords(p_card, &a);
+  lv_obj_get_content_coords(right, &r);
+  return a.y2 <= r.y2 - reserve;
+}
+
+static int cardsAdd(lv_obj_t *parent, int from, int max, bool compact)
+{
+  int32_t reserve = lv_font_get_line_height(uiFont(15)) + 12;
+  int     shown   = 0;
+
+  for (int i=from; i<view.count && shown<max; i++)
+  {
+    cardCreate(parent, &view.item[i], compact);
+    if (cardFits(cards[card_cnt-1].obj, (i < view.count - 1) ? reserve : 0) != true)
+    {
+      lv_obj_delete(cards[card_cnt-1].obj);
+      card_cnt--;
+      break;
+    }
+    shown++;
+  }
+  return shown;
+}
+
+
 //-- 오른쪽 패널 (상태마다)
 //
 static lv_obj_t *dashLine(lv_obj_t *parent)
@@ -340,19 +380,16 @@ static void buildIdle(void)
 static void buildWaiting(bool cry)
 {
   bool compact = cry || view.count > 2;
-  int  show    = LV_MIN(view.count, CARD_MAX);
+  int  show;
   lv_obj_t *spacer;
 
   if (cry == false)
     uiCreateLabel(right, "밥 주세요 (답장 대기)", uiFont(20), UI_COLOR_INK);
 
-  for (int i=0; i<show; i++)
-  {
-    cardCreate(right, &view.item[i], compact);
-  }
+  show = cardsAdd(right, 0, CARD_MAX, compact);
   moreLabel(right, view.count - show);
 
-  if (compact == false)
+  if (compact == false && show == view.count)
   {
     spacer = uiCreateBox(right);
     lv_obj_set_flex_grow(spacer, 1);
@@ -378,7 +415,7 @@ static void buildEat(void)
   lv_obj_t *banner, *col;
   char      buf[160];
   int       gain = view.eat_full_to - view.eat_full_from;
-  int       show = LV_MIN(view.count, 2);
+  int       show;
 
   banner = row(right, 12);
   lv_obj_set_width(banner, LV_PCT(100));
@@ -407,10 +444,7 @@ static void buildEat(void)
   col = uiCreateLabel(right, view.count > 0 ? "남은 요청" : "남은 요청이 없어요", uiFont(17), UI_COLOR_INK_DIM);
   lv_obj_set_style_margin_top(col, 4, 0);
 
-  for (int i=0; i<show; i++)
-  {
-    cardCreate(right, &view.item[i], view.count > 1);
-  }
+  show = cardsAdd(right, 0, 3, view.count > 1);
   moreLabel(right, view.count - show);
 }
 
@@ -471,7 +505,11 @@ static void refreshBar(void)
 
     utilCivilFromEpoch(local, &y, &mo, &d, &h, &mi, &s);
     lv_label_set_text_fmt(lbl_clock, "%02d:%02d", h, mi);
-    lv_label_set_text_fmt(lbl_date, "%d월 %d일 (%s)", mo, d, weekday_str[(local / 86400 + 4) % 7]);
+    // 글자를 키우면 가운데 요약과 겹치지 않게 짧게 쓴다
+    if (uiThemeGetFontLevel() == 0)
+      lv_label_set_text_fmt(lbl_date, "%d월 %d일 (%s)", mo, d, weekday_str[(local / 86400 + 4) % 7]);
+    else
+      lv_label_set_text_fmt(lbl_date, "%d/%d (%s)", mo, d, weekday_str[(local / 86400 + 4) % 7]);
   }
   else
   {
@@ -564,6 +602,38 @@ void pingpetRefresh(bool force)
 }
 
 
+static void onBarLongPress(lv_event_t *e)
+{
+  LV_UNUSED(e);
+  launcherRequestApp("settings");
+}
+
+/* 미응답 0 건으로 10 분 동안 손대지 않으면 어둡게, 새 요청이 오거나 만지면 원래 밝기로 */
+static void backlightUpdate(void)
+{
+  bool active = false;
+
+  if (lv_display_get_inactive_time(NULL) < 1000)    active = true;   // 방금 만졌다
+  if (view.count > last_count)                      active = true;   // 새 요청
+  last_count = view.count;
+
+  if (active)
+  {
+    active_ms = millis();
+    if (is_dimmed)
+    {
+      is_dimmed = false;
+      lcdSetBackLight(uiThemeGetBrightness());
+    }
+  }
+  else if (is_dimmed == false && view.count == 0 && millis() - active_ms >= DIM_AFTER_MS)
+  {
+    is_dimmed = true;
+    lcdSetBackLight(LV_MIN(DIM_PERCENT, uiThemeGetBrightness()));
+  }
+}
+
+
 //-- app
 //
 static bool pingpetEnter(lv_obj_t *p_scr)
@@ -581,6 +651,8 @@ static bool pingpetEnter(lv_obj_t *p_scr)
   lv_obj_set_style_border_width(bar, UI_BORDER, 0);
   lv_obj_set_style_border_color(bar, lv_color_hex(UI_COLOR_INK), 0);
   lv_obj_set_style_pad_hor(bar, UI_SPACE_LG, 0);
+  lv_obj_set_clickable(bar, true);
+  lv_obj_add_event_cb(bar, onBarLongPress, LV_EVENT_LONG_PRESSED, NULL);    // 길게 누르면 설정
 
   lbl_clock = uiCreateLabel(bar, "--:--", uiFontPixel(PIXEL_SIZE_CLOCK), UI_COLOR_INK);
   lv_obj_align(lbl_clock, LV_ALIGN_LEFT_MID, 0, 0);
@@ -636,6 +708,7 @@ static bool pingpetEnter(lv_obj_t *p_scr)
 
   shown_version = 0xFFFFFFFF;
   shown_state   = -1;
+  active_ms     = millis();
   pingpetRefresh(true);
   return true;
 }
@@ -645,6 +718,8 @@ static void pingpetUpdate(void)
   if (millis() - view_ms < VIEW_PERIOD_MS)
     return;
   view_ms = millis();
+
+  backlightUpdate();
 
   // 화면을 누르고 있는 동안은 패널을 다시 만들지 않는다 (누르던 카드가 지워지면 길게 누르기가 끊긴다)
   lv_indev_t *indev = lv_port_indev_get_touch();

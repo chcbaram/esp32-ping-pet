@@ -11,7 +11,6 @@ static void inboxModuleUpdate(void const *arg);
 static void cliInbox(cli_args_t *args);
 void        inboxDemoUpdate(void);
 void        inboxDemoCli(cli_args_t *args);
-bool        inboxDemoIsOn(void);
 
 
 static SemaphoreHandle_t mutex_lock = NULL;

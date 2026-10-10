@@ -29,6 +29,7 @@ bool  launcherInit(void);
 void  launcherUpdate(void);
 
 bool  launcherRunApp(const char *name);
+void  launcherRequestApp(const char *name);   /* 다른 태스크(cli 등)나 이벤트 안에서 : 다음 launcherUpdate() 에서 전환 */
 void  launcherExitApp(void);
 const char *launcherGetAppName(void); /* 실행중인 app 이 없으면 NULL */
 

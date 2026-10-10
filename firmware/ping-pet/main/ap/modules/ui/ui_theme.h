@@ -64,9 +64,18 @@ const ui_palette_t *uiPalette(void);
 #define UI_TOUCH_MIN          64
 
 
-/* 글꼴 크기는 목업 기준 (px) */
+/* 글꼴 크기는 목업 기준 (px). 글자 크기 단계(보통 · 크게 · 아주 크게)의 비율을 곱해 만든다. */
 const lv_font_t *uiFont(int32_t size);        /* Jua, 한글. 없는 기호(… ·)는 같은 크기 Silkscreen 으로 */
 const lv_font_t *uiFontPixel(int32_t size);   /* Silkscreen, 숫자 · 영문 */
+
+#define UI_FONT_LEVEL_MAX     3
+uint8_t     uiThemeGetFontLevel(void);
+void        uiThemeSetFontLevel(uint8_t level);    /* 저장한다. 화면은 부르는 쪽이 다시 만든다 */
+const char *uiThemeGetFontLevelName(uint8_t level);
+
+/* 화면 밝기 (사용자가 고른 값, %). 자동으로 어둡게 할 때도 이 값으로 돌아온다 */
+uint8_t     uiThemeGetBrightness(void);
+void        uiThemeSetBrightness(uint8_t percent); /* 바로 적용하고 저장한다 */
 
 bool      uiThemeInit(void);
 void      uiApplyScreen(lv_obj_t *scr);

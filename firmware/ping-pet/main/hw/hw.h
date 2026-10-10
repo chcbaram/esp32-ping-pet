@@ -17,6 +17,7 @@ extern "C" {
 #include "lcd.h"
 #include "touch.h"
 #include "lvgl.h"
+#include "nvs.h"
 #include "qbuffer.h"
 #include "util_core.h"
 

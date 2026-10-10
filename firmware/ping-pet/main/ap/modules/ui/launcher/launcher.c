@@ -12,6 +12,7 @@ static int               app_cnt = 0;
 static lv_obj_t         *scr_root = NULL;
 static lv_obj_t         *app_cont = NULL;
 static const app_info_t *app_cur  = NULL;
+static const char *volatile app_req = NULL;
 
 
 
@@ -56,8 +57,21 @@ bool launcherInit(void)
   return ret;
 }
 
+void launcherRequestApp(const char *name)
+{
+  app_req = name;
+}
+
 void launcherUpdate(void)
 {
+  // 이벤트 콜백 안에서 화면을 지우면 안 되므로 전환은 여기서 한다
+  const char *req = app_req;
+  if (req != NULL)
+  {
+    app_req = NULL;
+    launcherRunApp(req);
+  }
+
   if (app_cur != NULL && app_cur->update != NULL)
   {
     app_cur->update();

@@ -26,6 +26,7 @@ bool hwInit(void)
   logPrintf("\n");
   bootMsg();
 
+  nvsInit();
   i2cInit();
   lcdInit();
   touchInit();
