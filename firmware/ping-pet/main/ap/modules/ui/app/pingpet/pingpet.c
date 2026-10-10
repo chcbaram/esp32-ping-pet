@@ -32,8 +32,7 @@
 
 #define PIXEL_SIZE_CLOCK  28
 
-#define DIM_AFTER_MS      (10 * 60 * 1000)   // 미응답 0 건으로 10 분 동안 손대지 않으면
-#define DIM_PERCENT       30                 // 백라이트를 30 % 로 (인계 문서)
+#define DIM_AFTER_MS      (10 * 60 * 1000)   // 기다리는 미응답이 없고 마지막 일 뒤로 10 분이 지나면
 
 
 typedef struct
@@ -83,7 +82,7 @@ static bool      confirm_wip = false;     // 그 카드가 이미 처리 중이�
 static uint32_t  confirm_ms = 0;
 
 static uint32_t  active_ms  = 0;          // 마지막으로 만졌거나 새 요청이 온 때
-static uint8_t   last_count = 0;
+static uint32_t  last_sig = 0;           // 목록 · 처리 중 · 상태 요약 (바뀌면 "일이 있었다")
 static bool      is_dimmed  = false;
 
 static const char *pet_msg[] =
@@ -822,13 +821,16 @@ static void onBarLongPress(lv_event_t *e)
 }
 
 /* 미응답 0 건으로 10 분 동안 손대지 않으면 어둡게, 새 요청이 오거나 만지면 원래 밝기로 */
+/* 백라이트 : 기다리는 미응답(처리 중 제외)이 없고, 마지막 일 뒤로 10 분이 지나면 설정한 밝기(기본 30 %)로.
+   일 = 터치, 새 요청, 답장 · 치우기, 처리 중 표시 · 해제, 상태가 바뀜 (시계 · 경과 시간은 아니다) */
 static void backlightUpdate(void)
 {
-  bool active = false;
+  bool     active = false;
+  uint32_t sig    = (uint32_t)view.count | ((uint32_t)view.wip << 8) | ((uint32_t)view.state << 16);
 
   if (lv_display_get_inactive_time(NULL) < 1000)    active = true;   // 방금 만졌다
-  if (view.count > last_count)                      active = true;   // 새 요청
-  last_count = view.count;
+  if (sig != last_sig)                              active = true;   // 목록 · 상태가 바뀌었다
+  last_sig = sig;
 
   if (active)
   {
@@ -839,10 +841,10 @@ static void backlightUpdate(void)
       lcdSetBackLight(uiThemeGetBrightness());
     }
   }
-  else if (is_dimmed == false && view.count == 0 && millis() - active_ms >= DIM_AFTER_MS)
+  else if (is_dimmed == false && uiThemeGetDim() > 0 && view.active == 0 && millis() - active_ms >= DIM_AFTER_MS)
   {
     is_dimmed = true;
-    lcdSetBackLight(LV_MIN(DIM_PERCENT, uiThemeGetBrightness()));
+    lcdSetBackLight(LV_MIN(uiThemeGetDim(), uiThemeGetBrightness()));   // 설정 앱에서 고른 밝기 (기본 30 %)
   }
 }
 

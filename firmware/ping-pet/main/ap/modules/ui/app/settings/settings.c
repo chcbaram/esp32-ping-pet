@@ -10,13 +10,15 @@
  *
  *   글자 크기 : 보통 · 크게 · 아주 크게. 고르면 저장하고 이 화면을 그 크기로 다시 그린다 (미리 보기)
  *   화면 밝기 : 10 ~ 100 %. 끄는 동안 바로 적용하고, 손을 떼면 저장한다
+ *   자동으로 어둡게 : 기다리는 미응답이 없고 10 분 동안 아무 일이 없을 때의 밝기 (안 함 · 10 · 30 · 50 %)
  *   데모 모드 : 가상의 메시지로 4 상태를 돌려 본다
  *
  * 누를 수 있는 것은 모두 높이 UI_TOUCH_MIN(64) 이상.
  */
 
 
-#define ROW_GAP           18
+#define ROW_GAP           14
+#define LABEL_W           190       // 왼쪽 항목 이름 칸 (아주 크게에서도 한 줄)
 
 
 static lv_obj_t *lbl_bl;
@@ -42,23 +44,27 @@ static lv_obj_t *button(lv_obj_t *parent, const char *text, bool selected, int32
   return btn;
 }
 
+/* 한 줄 : 왼쪽에 항목 이름, 오른쪽에 버튼들. 아주 크게에서도 모든 항목이 한 화면에 들어간다 */
 static lv_obj_t *section(lv_obj_t *parent, const char *title)
 {
-  lv_obj_t *col = uiCreateBox(parent);
+  lv_obj_t *row = uiCreateBox(parent);
+  lv_obj_t *lbl;
 
-  lv_obj_set_width(col, LV_PCT(100));
-  lv_obj_set_height(col, LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(col, 10, 0);
-  uiCreateLabel(col, title, uiFont(18), UI_COLOR_INK_DIM);
-  return col;
+  lv_obj_set_width(row, LV_PCT(100));
+  lv_obj_set_height(row, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(row, 12, 0);
+  lbl = uiCreateLabel(row, title, uiFont(18), UI_COLOR_INK_DIM);
+  lv_obj_set_width(lbl, LABEL_W);
+  return row;
 }
 
 static lv_obj_t *hrow(lv_obj_t *parent)
 {
   lv_obj_t *row = uiCreateBox(parent);
 
-  lv_obj_set_width(row, LV_PCT(100));
+  lv_obj_set_width(row, LV_SIZE_CONTENT);
   lv_obj_set_height(row, LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -99,6 +105,17 @@ static void onBrightness(lv_event_t *e)
   else if (lv_event_get_code(e) == LV_EVENT_RELEASED)
   {
     uiThemeSetBrightness(v);             // 손을 떼면 저장
+  }
+}
+
+static void onDim(lv_event_t *e)
+{
+  uint8_t percent = (uint8_t)(intptr_t)lv_event_get_user_data(e);
+
+  if (percent != uiThemeGetDim())
+  {
+    uiThemeSetDim(percent);
+    launcherRequestApp("settings");      // 고른 버튼 표시를 다시 그린다
   }
 }
 
@@ -159,7 +176,7 @@ static bool settingsEnter(lv_obj_t *scr)
   row = hrow(sec);
   for (int i=0; i<UI_FONT_LEVEL_MAX; i++)
   {
-    obj = button(row, uiThemeGetFontLevelName(i), i == uiThemeGetFontLevel(), 180);
+    obj = button(row, uiThemeGetFontLevelName(i), i == uiThemeGetFontLevel(), 160);
     lv_obj_add_event_cb(obj, onFont, LV_EVENT_CLICKED, (void *)(intptr_t)i);
   }
 
@@ -168,7 +185,7 @@ static bool settingsEnter(lv_obj_t *scr)
   row = hrow(sec);
   lv_obj_set_style_pad_column(row, 36, 0);            // 손잡이가 숫자에 붙지 않게
   obj = lv_slider_create(row);
-  lv_obj_set_size(obj, 440, 20);
+  lv_obj_set_size(obj, 380, 20);
   lv_obj_set_style_margin_left(obj, 12, 0);           // 손잡이가 왼쪽 끝에서 잘리지 않게
   lv_obj_set_style_margin_ver(obj, 22, 0);            // 누르는 높이 64 를 맞춘다
   lv_obj_set_ext_click_area(obj, 22);
@@ -182,8 +199,22 @@ static bool settingsEnter(lv_obj_t *scr)
   snprintf(buf, sizeof(buf), "%d %%", uiThemeGetBrightness());
   lbl_bl = uiCreateLabel(row, buf, uiFontPixel(22), UI_COLOR_INK);
 
+  // 자동으로 어둡게
+  sec = section(body, "자동으로 어둡게");
+  row = hrow(sec);
+  {
+    static const uint8_t dim_tbl[]  = {0, 10, 30, 50};
+    static const char   *dim_name[] = {"안 함", "10 %", "30 %", "50 %"};
+
+    for (int i=0; i<4; i++)
+    {
+      obj = button(row, dim_name[i], dim_tbl[i] == uiThemeGetDim(), 120);
+      lv_obj_add_event_cb(obj, onDim, LV_EVENT_CLICKED, (void *)(intptr_t)dim_tbl[i]);
+    }
+  }
+
   // 데모 모드
-  sec = section(body, "데모 모드 (가상의 메시지로 화면 돌려 보기)");
+  sec = section(body, "데모 모드");
   row = hrow(sec);
   btn_demo = button(row, "", false, 180);
   lbl_demo = lv_obj_get_child(btn_demo, 0);

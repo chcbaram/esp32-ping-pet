@@ -60,6 +60,7 @@ static const uint8_t font_pct[UI_FONT_LEVEL_MAX]   = {100, 115, 130};
 static const char   *font_name[UI_FONT_LEVEL_MAX]  = {"보통", "크게", "아주 크게"};
 static uint8_t       font_level = UI_FONT_LEVEL_DEFAULT;
 static uint8_t       brightness = 100;
+static uint8_t       dim = 30;                       // 자동으로 어둡게 (0 = 안 함). 인계 문서 30 %
 
 
 
@@ -106,6 +107,8 @@ bool uiThemeInit(void)
   if (nvsGet("bl", &brightness, 1) != true || brightness < 10 || brightness > 100)
     brightness = 100;
   lcdSetBackLight(brightness);
+  if (nvsGet("dim", &dim, 1) != true || dim > 100)
+    dim = 30;
 
   logPrintf("[%s] uiThemeInit()\n", ret ? "OK" : "E_");
   logPrintf("     font level %d (%d %%), brightness %d %%\n", font_level, font_pct[font_level], brightness);
@@ -203,6 +206,17 @@ void uiThemeSetFontLevel(uint8_t level)
 const char *uiThemeGetFontLevelName(uint8_t level)
 {
   return (level < UI_FONT_LEVEL_MAX) ? font_name[level] : "-";
+}
+
+uint8_t uiThemeGetDim(void)
+{
+  return dim;
+}
+
+void uiThemeSetDim(uint8_t percent)
+{
+  dim = (percent > 100) ? 100 : percent;
+  nvsSet("dim", &dim, 1);
 }
 
 uint8_t uiThemeGetBrightness(void)

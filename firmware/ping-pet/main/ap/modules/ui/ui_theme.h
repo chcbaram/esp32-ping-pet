@@ -77,6 +77,8 @@ const char *uiThemeGetFontLevelName(uint8_t level);
 /* 화면 밝기 (사용자가 고른 값, %). 자동으로 어둡게 할 때도 이 값으로 돌아온다 */
 uint8_t     uiThemeGetBrightness(void);
 void        uiThemeSetBrightness(uint8_t percent); /* 바로 적용하고 저장한다 */
+uint8_t     uiThemeGetDim(void);                   /* 자동으로 어둡게 할 밝기 %, 0 이면 어둡게 하지 않는다 */
+void        uiThemeSetDim(uint8_t percent);        /* 저장한다 */
 
 bool      uiThemeInit(void);
 void      uiApplyScreen(lv_obj_t *scr);
