@@ -13,6 +13,9 @@ extern "C" {
 #include "log.h"
 #include "usb.h"
 #include "cdc.h"
+#include "i2c.h"
+#include "lcd.h"
+#include "touch.h"
 #include "qbuffer.h"
 #include "util_core.h"
 

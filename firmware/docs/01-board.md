@@ -45,10 +45,10 @@ rev < 3 용으로 빌드한 이미지는 rev 3 칩에서 부팅하지 않는다 
 | 패널 리셋 | GPIO5 ⚠️ | ESPHome `reset_pin=5` |
 | MIPI PHY 전원 | 내부 LDO 채널 3, 2.5 V | ESPHome `esp_ldo` |
 | 백라이트 | GPIO23 LEDC, ESPHome 은 100 Hz · 최대 80 % ⚠️ | ESPHome, 회로도 넷 `LCD_PWM` / `LEDK` |
-| 터치 | GT911, I2C SDA GPIO7 / SCL GPIO8, 400 kHz ⚠️ | ESPHome, 회로도 넷 `TOUCH_RST` / `TOUCH_INT` |
+| 터치 | GT911, I2C SDA GPIO7 / SCL GPIO8, 400 kHz, **리셋 GPIO3**, INT 미사용 ⚠️ | ESPHome, [ultramcu BSP](https://github.com/ultramcu/guition-jc4880p4-bsp), 회로도 넷 `TOUCH_RST` / `TOUCH_INT` |
 
 초기화 시퀀스는 ESPHome `guition.py` 의 `JC4880P443` 항목에 있다. ESPHome 은 SLPOUT(0x11) / DISPON(0x29) 을 따로 보내므로,
-`esp_lcd_st7701` 에 넘길 때는 두 명령을 시퀀스 끝에 붙여야 한다 (LCD 단계에서 확인).
+두 명령을 시퀀스 끝에 붙여야 한다. 이 보드의 알려진 문제와 올리는 순서는 [22](22-lcd-touch.md).
 
 ---
 

@@ -10,7 +10,7 @@ Guition JC4880P443C (ESP32-P4 + ESP32-C6, 4.3" 480×800 MIPI-DSI) 보드 기준 
 | | |
 |---|---|
 | 보드 | JC4880P443C V1.0 (회로도 `hardware/JC4880P443_V1.0.pdf`) — **ESP32-P4 rev v3.2** (esptool 로 확인) |
-| 펌웨어 | `ping-pet` — UART0 + 로그 + CLI, **USB HS CDC (esp_tinyusb)**, 모듈 시스템, **버튼 없이 다운로드**. 보드에서 동작 확인 |
+| 펌웨어 | `ping-pet` — UART0 + 로그 + CLI, **USB HS CDC (esp_tinyusb)**, 모듈 시스템, **버튼 없이 다운로드**, **LCD · 터치 · 백라이트**. 보드에서 동작 확인 |
 | 클럭 | CPU 400 MHz, PSRAM 32 MB, Flash 16 MB |
 | 빌드 | ESP-IDF v5.5.5, `-Og` — 앱 약 324 KB / 8 MB 파티션 |
 | USB | HS 커넥터 하나로 플래시 · CLI · 로그. 앱 `1209:E324`, ROM 다운로드 `303A:0012`, 시리얼 = MAC |
@@ -28,7 +28,7 @@ CLI 는 보드의 HS USB 포트(`/dev/cu.usbmodem…`)를 **115200** 으로 열�
 
 ### 다음 작업
 
-1. LCD (ST7701 MIPI-DSI) + 터치 (GT911) + 백라이트 — LVGL 구조는 `stm32h7-gfx/firmware/stm32h7-lvgl` 을 따른다
+1. LVGL — 구조는 `stm32h7-gfx/firmware/stm32h7-lvgl` 을 따른다, PPA 회전 ([22](22-lcd-touch.md))
 2. UI 4 상태 화면과 로고 캐릭터 (목업: Slack 다마고치 UI 캔버스)
 3. cmd 채널 — 맥 중계 스크립트의 JSON 줄을 CDC(115200 이 아닌 보율)로 받는다
 4. HID (웹 설정 채널, PID `E325`) → [27](27-usb.md) 6절
@@ -77,6 +77,7 @@ stm32h563-core 와 같다.
 | 문서 | 기능 | 상태 |
 |---|---|---|
 | [21-uart-cli.md](21-uart-cli.md) | UART0 + 로그 + CLI, uart 드라이버 구조 | ✅ (UART0 핀은 보드에서 미확인) |
+| [22-lcd-touch.md](22-lcd-touch.md) | LCD · 터치 · 백라이트 — **알려진 문제 조사** (rev 3 DSI 클럭, 기본 st7701 드라이버 검은 화면, GT911 리셋 · 주소), 더블버퍼, 회전 | ✅ (LVGL 남음) |
 | [27-usb.md](27-usb.md) | **USB HS CDC** — CDC 주인을 보율로 가름, **버튼 없이 ROM 다운로드**, VID/PID | ✅ (CLI `boot` 명령 미확인) |
 
 ## 출처
