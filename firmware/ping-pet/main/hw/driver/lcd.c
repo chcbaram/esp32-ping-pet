@@ -57,6 +57,7 @@ static volatile uint32_t vsync_cnt = 0;
 static uint32_t          update_ms = 0;
 static ppa_client_handle_t ppa_srm = NULL;
 static uint32_t          ppa_us = 0;
+static uint32_t          update_area = 0;
 
 
 
@@ -307,20 +308,48 @@ void lcdUpdateDraw(void)
   update_ms = millis() - pre_time;
 }
 
-//-- 화면 버퍼(가로 LCD_WIDTH x LCD_HEIGHT, RGB565)를 PPA 로 돌려 표시한다. LVGL 출력이 쓴다.
+//-- 화면 버퍼(가로 LCD_WIDTH x LCD_HEIGHT, RGB565)의 한 영역을 PPA 로 돌려 표시한다. LVGL 출력이 쓴다.
 //
-//   PPA 가 다음 버퍼에 돌려 쓰고 (입력 C2M, 출력 M2C 캐시 처리는 PPA 드라이버가 한다)
+//   PPA 가 다음 버퍼의 같은 자리에 돌려 쓰고 (입력 C2M, 출력 M2C 캐시 처리는 PPA 드라이버가 한다)
 //   draw_bitmap 으로 표시 버퍼를 바꾼 뒤 vsync 를 기다린다. CPU 복사가 없다.
 //   p_screen 은 캐시 라인(128 B)에 맞춰 할당해야 한다.
 //
-bool lcdDrawScreen(const uint16_t *p_screen)
+//   프레임버퍼가 두 장이라 다음 버퍼에는 두 프레임 전 내용이 남아 있다. 부르는 쪽(lv_port_disp.c)이
+//   이번 영역과 직전 영역을 합쳐서 넘긴다.
+//
+bool lcdDrawScreenArea(const uint16_t *p_screen, int16_t x, int16_t y, int16_t w, int16_t h)
 {
   esp_err_t err;
   uint16_t *p_out;
   uint32_t  pre_time = millis();
   uint32_t  pre_us;
+  int32_t   out_x, out_y, out_w, out_h;
 
   if (is_init != true) return false;
+
+  if (x < 0) { w += x; x = 0; }
+  if (y < 0) { h += y; y = 0; }
+  if (x + w > LCD_WIDTH)  w = LCD_WIDTH  - x;
+  if (y + h > LCD_HEIGHT) h = LCD_HEIGHT - y;
+  if (w <= 0 || h <= 0) return false;
+
+  // 화면 영역 → 패널 영역 (lcdIndex() 와 같은 변환)
+#if HW_LCD_ROTATION == 90
+  out_x = y;
+  out_y = PANEL_H - (x + w);
+  out_w = h;
+  out_h = w;
+#elif HW_LCD_ROTATION == 270
+  out_x = PANEL_W - (y + h);
+  out_y = x;
+  out_w = h;
+  out_h = w;
+#else
+  out_x = x;
+  out_y = y;
+  out_w = w;
+  out_h = h;
+#endif
 
   p_out = frame_buf[draw_index];
 
@@ -331,10 +360,10 @@ bool lcdDrawScreen(const uint16_t *p_screen)
       .buffer         = p_screen,
       .pic_w          = LCD_WIDTH,
       .pic_h          = LCD_HEIGHT,
-      .block_w        = LCD_WIDTH,
-      .block_h        = LCD_HEIGHT,
-      .block_offset_x = 0,
-      .block_offset_y = 0,
+      .block_w        = w,
+      .block_h        = h,
+      .block_offset_x = x,
+      .block_offset_y = y,
       .srm_cm         = PPA_SRM_COLOR_MODE_RGB565,
     },
     .out =
@@ -343,8 +372,8 @@ bool lcdDrawScreen(const uint16_t *p_screen)
       .buffer_size    = FB_SIZE,
       .pic_w          = PANEL_W,
       .pic_h          = PANEL_H,
-      .block_offset_x = 0,
-      .block_offset_y = 0,
+      .block_offset_x = out_x,
+      .block_offset_y = out_y,
       .srm_cm         = PPA_SRM_COLOR_MODE_RGB565,
     },
 #if HW_LCD_ROTATION == 90
@@ -367,13 +396,20 @@ bool lcdDrawScreen(const uint16_t *p_screen)
     return false;
   }
 
+  // 표시 버퍼를 바꾼다. 넘긴 영역의 줄만 캐시를 내린다 (PPA 출력은 이미 메모리에 있다)
   xSemaphoreTake(vsync_sem, 0);
-  esp_lcd_panel_draw_bitmap(dpi_panel, 0, 0, PANEL_W, PANEL_H, p_out);
+  esp_lcd_panel_draw_bitmap(dpi_panel, out_x, out_y, out_x + out_w, out_y + out_h, p_out);
   xSemaphoreTake(vsync_sem, pdMS_TO_TICKS(50));
   draw_index ^= 1;
 
-  update_ms = millis() - pre_time;
+  update_ms   = millis() - pre_time;
+  update_area = (uint32_t)w * h;
   return true;
+}
+
+bool lcdDrawScreen(const uint16_t *p_screen)
+{
+  return lcdDrawScreenArea(p_screen, 0, 0, LCD_WIDTH, LCD_HEIGHT);
 }
 
 //-- 화면 좌표(가로) → 패널 버퍼 인덱스(세로). touch.c 의 touchRotate() 와 반대 방향이다
@@ -480,7 +516,8 @@ void cliLcd(cli_args_t *args)
     cliPrintf("screen    : %d x %d, rotation %d\n", LCD_WIDTH, LCD_HEIGHT, HW_LCD_ROTATION);
     cliPrintf("fb        : %p, %p (draw %d)\n", frame_buf[0], frame_buf[1], draw_index);
     cliPrintf("backlight : %d %%, %d Hz\n", backlight_value, HW_LCD_BL_FREQ_HZ);
-    cliPrintf("update    : %d ms (ppa %d us)\n", (int)update_ms, (int)ppa_us);
+    cliPrintf("update    : %d ms (ppa %d us, %d %% of screen)\n", (int)update_ms, (int)ppa_us,
+              (int)(update_area * 100 / (LCD_WIDTH * LCD_HEIGHT)));
 
     uint32_t cnt = vsync_cnt;
     delay(1000);

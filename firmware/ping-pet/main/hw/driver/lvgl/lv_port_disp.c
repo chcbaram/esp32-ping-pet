@@ -14,6 +14,11 @@ static void disp_flush(lv_display_t *disp, const lv_area_t *area, uint8_t *px_ma
 static lv_display_t   *disp = NULL;
 static volatile bool   disp_flush_enabled = true;
 static uint16_t       *draw_buf = NULL;
+static bool            flush_full = false;   // true : 매번 화면 전체를 돌린다 (비교용)
+static lv_area_t       area_cur;             // 이번 프레임에 바뀐 영역 (flush 들의 합)
+static lv_area_t       area_prev;            // 직전 프레임에 바뀐 영역
+static bool            area_cur_valid  = false;
+static bool            area_prev_valid = false;
 
 
 
@@ -57,15 +62,63 @@ void disp_disable_update(void)
   disp_flush_enabled = false;
 }
 
-/* DIRECT 모드라 px_map 은 화면 버퍼 전체다. 마지막 area 일 때만 통째로 돌려 표시한다.
+void disp_set_flush_full(bool enable)
+{
+  flush_full = enable;
+}
+
+bool disp_get_flush_full(void)
+{
+  return flush_full;
+}
+
+static void area_join(lv_area_t *p_dst, bool *p_valid, const lv_area_t *p_src)
+{
+  if (*p_valid == false)
+  {
+    *p_dst   = *p_src;
+    *p_valid = true;
+    return;
+  }
+  p_dst->x1 = LV_MIN(p_dst->x1, p_src->x1);
+  p_dst->y1 = LV_MIN(p_dst->y1, p_src->y1);
+  p_dst->x2 = LV_MAX(p_dst->x2, p_src->x2);
+  p_dst->y2 = LV_MAX(p_dst->y2, p_src->y2);
+}
+
+/* DIRECT 모드라 px_map 은 화면 버퍼 전체이고, area 는 이번에 다시 그린 영역이다.
+ *
+ * 한 프레임의 area 들을 모아 두었다가 마지막 flush 에서 한 번에 돌린다.
+ * DPI 프레임버퍼가 두 장이라 이번에 쓸 버퍼에는 두 프레임 전 내용이 남아 있다.
+ * 그래서 이번 영역과 직전 영역을 합친 영역을 돌려야 두 버퍼가 같아진다.
  */
 void disp_flush(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *px_map)
 {
-  LV_UNUSED(area);
+  area_join(&area_cur, &area_cur_valid, area);
 
   if (disp_flush_enabled == true && lv_display_flush_is_last(disp_drv) == true)
   {
-    lcdDrawScreen((const uint16_t *)px_map);
+    if (flush_full == true)
+    {
+      lcdDrawScreen((const uint16_t *)px_map);
+    }
+    else
+    {
+      lv_area_t area_draw = area_cur;
+      bool      valid     = true;
+
+      area_join(&area_draw, &valid, area_prev_valid ? &area_prev : &area_cur);
+
+      lcdDrawScreenArea((const uint16_t *)px_map,
+                        area_draw.x1,
+                        area_draw.y1,
+                        lv_area_get_width(&area_draw),
+                        lv_area_get_height(&area_draw));
+    }
+
+    area_prev       = area_cur;
+    area_prev_valid = true;
+    area_cur_valid  = false;
   }
 
   lv_display_flush_ready(disp_drv);

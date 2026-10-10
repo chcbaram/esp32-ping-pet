@@ -72,6 +72,7 @@ void cliCmd(cli_args_t *args)
     cliPrintf("ver       : %d.%d.%d\n", LVGL_VERSION_MAJOR, LVGL_VERSION_MINOR, LVGL_VERSION_PATCH);
     cliPrintf("is_init   : %s\n", is_init   ? "True":"False");
     cliPrintf("is_enable : %s\n", is_enable ? "True":"False");
+    cliPrintf("flush     : %s\n", disp_get_flush_full() ? "full" : "area");
     cliPrintf("heap psram: %d KB free\n", (int)(heap_caps_get_free_size(MALLOC_CAP_SPIRAM)/1024));
     cliPrintf("heap int  : %d KB free\n", (int)(heap_caps_get_free_size(MALLOC_CAP_INTERNAL)/1024));
     ret = true;
@@ -84,10 +85,19 @@ void cliCmd(cli_args_t *args)
     ret = true;
   }
 
+  if (args->argc == 2 && args->isStr(0, "flush"))
+  {
+    // CLI 는 메인 태스크라 LVGL 함수를 부르지 않는다 (LVGL 은 ui 태스크에서만). 다음 갱신부터 적용된다
+    disp_set_flush_full(args->isStr(1, "full"));
+    cliPrintf("flush     : %s\n", disp_get_flush_full() ? "full" : "area");
+    ret = true;
+  }
+
   if (ret == false)
   {
     cliPrintf("lvgl info\n");
     cliPrintf("lvgl enable on:off\n");
+    cliPrintf("lvgl flush full:area\n");
   }
 }
 #endif
