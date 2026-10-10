@@ -27,6 +27,7 @@
 #define CARD_MAX          INBOX_ITEM_MAX     // 보드가 받는 만큼 모두. 넘치면 스크롤한다
 #define SCROLL_HOME_MS    30000              // 30 초 손대지 않으면 맨 위(가장 오래된 요청)로
 #define VIEW_PERIOD_MS    200
+#define LEVEL_WIP         3                  // 카드 스타일 : 처리 중 (경과 시간과 상관없이 흐리게)
 #define CONFIRM_MS        15000              // 확인 창을 그대로 두면 15 초 뒤 취소
 
 #define PIXEL_SIZE_CLOCK  28
@@ -45,7 +46,8 @@ typedef struct
   lv_obj_t *lbl_age;
   char      id[48];
   uint32_t  ts;
-  int       level;          // 0 기본, 1 10 분 넘음, 2 30 분 넘음
+  int       level;          // 0 기본, 1 10 분 넘음, 2 30 분 넘음, LEVEL_WIP 처리 중
+  bool      wip;
 } card_t;
 
 
@@ -75,8 +77,9 @@ static lv_obj_t *lbl_more  = NULL;
 static int32_t   saved_scroll = 0;        // 패널을 다시 만들 때 스크롤 위치를 되돌린다
 static uint32_t  scroll_ms = 0;
 
-static lv_obj_t *confirm = NULL;          // "답장 없이 치울까요?" 확인 창 (없으면 NULL)
+static lv_obj_t *confirm = NULL;          // 1 초 누르기 창 : 처리 중 / 치우기 / 취소 (없으면 NULL)
 static char      confirm_id[48];
+static bool      confirm_wip = false;     // 그 카드가 이미 처리 중이다 (버튼이 "처리 중 해제")
 static uint32_t  confirm_ms = 0;
 
 static uint32_t  active_ms  = 0;          // 마지막으로 만졌거나 새 요청이 온 때
@@ -89,6 +92,7 @@ static const char *pet_msg[] =
   "배고파요…",
   "엉엉… 너무 배고파요",
   "냠냠! 맛있어요",
+  "하나씩 처리하는 중",
 };
 static const char *weekday_str[7] = {"일", "월", "화", "수", "목", "금", "토"};
 
@@ -183,37 +187,47 @@ static void confirmClose(void)
   }
 }
 
+typedef enum
+{
+  CONFIRM_CANCEL = 0,
+  CONFIRM_ACK,              // 답장 없이 치우기
+  CONFIRM_WIP,              // 처리 중 / 해제
+} confirm_act_t;
+
 static void onConfirm(lv_event_t *e)
 {
-  bool ok = (bool)(intptr_t)lv_event_get_user_data(e);
+  confirm_act_t act = (confirm_act_t)(intptr_t)lv_event_get_user_data(e);
 
   if (confirm == NULL)
     return;
-  if (ok)
+  if (act == CONFIRM_ACK)
     inboxRequestAck(confirm_id);
+  else if (act == CONFIRM_WIP)
+    inboxRequestWip(confirm_id, !confirm_wip);
   confirmClose();
 }
 
-static lv_obj_t *confirmButton(lv_obj_t *parent, const char *text, bool primary, bool ok)
+static lv_obj_t *confirmButton(lv_obj_t *parent, const char *text, bool primary, confirm_act_t act)
 {
   lv_obj_t *btn = uiCreateBox(parent);
   lv_obj_t *lbl;
 
-  lv_obj_set_size(btn, 180, UI_TOUCH_MIN);
+  lv_obj_set_size(btn, 150, UI_TOUCH_MIN);
   lv_obj_set_clickable(btn, true);
   lv_obj_set_style_border_width(btn, UI_BORDER, 0);
   lv_obj_set_style_border_color(btn, lv_color_hex(UI_COLOR_INK), 0);
   lv_obj_set_style_bg_opa(btn, LV_OPA_COVER, 0);
   lv_obj_set_style_bg_color(btn, lv_color_hex(primary ? UI_COLOR_INK : UI_COLOR_CARD), 0);
   lv_obj_set_style_translate_y(btn, 2, LV_STATE_PRESSED);
-  lv_obj_add_event_cb(btn, onConfirm, LV_EVENT_CLICKED, (void *)(intptr_t)ok);
+  lv_obj_add_event_cb(btn, onConfirm, LV_EVENT_CLICKED, (void *)(intptr_t)act);
 
   lbl = uiCreateLabel(btn, text, uiFont(20), primary ? UI_COLOR_BG : UI_COLOR_INK);
   lv_obj_center(lbl);
   return btn;
 }
 
-/* 1 초 누르기는 되돌릴 수 없으니 한 번 묻는다. 손가락은 아직 카드 위라 손을 떼도 버튼이 눌리지 않는다 */
+/* 1 초 누르기 : 처리 중으로 둘지, 답장 없이 치울지 고른다 (치우기는 되돌릴 수 없으니 바로 하지 않는다).
+   손가락은 아직 카드 위라 손을 떼도 버튼이 눌리지 않는다 */
 static void confirmOpen(const card_t *p_card)
 {
   lv_obj_t *box, *obj, *btns;
@@ -222,7 +236,8 @@ static void confirmOpen(const card_t *p_card)
   confirmClose();
   strncpy(confirm_id, p_card->id, sizeof(confirm_id) - 1);
   confirm_id[sizeof(confirm_id) - 1] = 0;
-  confirm_ms = millis();
+  confirm_ms  = millis();
+  confirm_wip = p_card->wip;
 
   // 화면 전체를 덮는 반투명 막 : 뒤의 카드가 눌리지 않게 하고, 막을 누르면 취소
   confirm = uiCreateBox(scr);
@@ -232,10 +247,10 @@ static void confirmOpen(const card_t *p_card)
   lv_obj_set_clickable(confirm, true);
   lv_obj_set_style_bg_color(confirm, lv_color_hex(UI_COLOR_INK), 0);
   lv_obj_set_style_bg_opa(confirm, LV_OPA_50, 0);
-  lv_obj_add_event_cb(confirm, onConfirm, LV_EVENT_CLICKED, (void *)(intptr_t)false);
+  lv_obj_add_event_cb(confirm, onConfirm, LV_EVENT_CLICKED, (void *)(intptr_t)CONFIRM_CANCEL);
 
   box = uiCreateBox(confirm);
-  lv_obj_set_size(box, 520, LV_SIZE_CONTENT);
+  lv_obj_set_size(box, 560, LV_SIZE_CONTENT);
   lv_obj_center(box);
   lv_obj_set_clickable(box, true);              // 창 안을 눌러도 취소되지 않게
   lv_obj_set_style_bg_opa(box, LV_OPA_COVER, 0);
@@ -247,7 +262,7 @@ static void confirmOpen(const card_t *p_card)
   lv_obj_set_flex_flow(box, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(box, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
-  uiCreateLabel(box, "답장 없이 치울까요?", uiFont(24), UI_COLOR_INK);
+  uiCreateLabel(box, "이 요청을 어떻게 할까요?", uiFont(24), UI_COLOR_INK);
 
   obj = uiCreateLabel(box, lv_label_get_text(p_card->lbl_title), uiFont(18), UI_COLOR_INK);
   lv_obj_set_width(obj, LV_PCT(100));
@@ -260,13 +275,18 @@ static void confirmOpen(const card_t *p_card)
   lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_CENTER, 0);
   lv_label_set_long_mode(obj, LV_LABEL_LONG_MODE_DOTS);
 
-  uiCreateLabel(box, "슬랙에는 아무것도 보내지 않아요", uiFont(15), UI_COLOR_INK_DIM);
+  obj = uiCreateLabel(box, confirm_wip ? "처리 중 해제 : 다시 답장 대기로\n치우기 : 답장 없이 목록에서 빼요 (슬랙에는 안 보내요)"
+                                       : "처리 중 : 보고 있어요. 답답이가 울지 않아요\n치우기 : 답장 없이 목록에서 빼요 (슬랙에는 안 보내요)",
+                      uiFont(15), UI_COLOR_INK_DIM);
+  lv_obj_set_width(obj, LV_PCT(100));
+  lv_obj_set_style_text_align(obj, LV_TEXT_ALIGN_CENTER, 0);
 
   btns = row(box, UI_SPACE_LG);
   lv_obj_set_size(btns, LV_SIZE_CONTENT, LV_SIZE_CONTENT);
   lv_obj_set_style_pad_top(btns, UI_SPACE_SM, 0);
-  confirmButton(btns, "취소", false, false);
-  confirmButton(btns, "치우기", true, true);
+  confirmButton(btns, "취소", false, CONFIRM_CANCEL);
+  confirmButton(btns, confirm_wip ? "처리 중 해제" : "처리 중", false, CONFIRM_WIP);
+  confirmButton(btns, "치우기", true, CONFIRM_ACK);
 }
 
 /* 열린 채 오래 두었거나, 그 사이 답장해서 목록에서 빠졌으면 닫는다 */
@@ -311,8 +331,20 @@ static void onCard(lv_event_t *e)
 
 static void cardStyle(card_t *p_card, int level)
 {
-  bool     old    = (level >= 2);
+  bool     old    = (level == 2);
   uint32_t border = old ? UI_COLOR_ERROR : UI_COLOR_INK;
+
+  if (level == LEVEL_WIP)       // 처리 중 : 흐린 테두리 · 아바타, 경과 시간도 흐리게
+  {
+    p_card->level = level;
+    lv_obj_set_style_border_color(p_card->obj, lv_color_hex(UI_COLOR_LINE_DASH), 0);
+    lv_obj_set_style_bg_color(p_card->obj, lv_color_hex(UI_COLOR_BG), 0);
+    lv_obj_set_style_bg_color(p_card->avatar, lv_color_hex(UI_COLOR_INK_DIM), 0);
+    lv_obj_set_style_text_color(p_card->lbl_avatar, lv_color_hex(UI_COLOR_BG), 0);
+    lv_obj_set_style_text_color(p_card->lbl_text, lv_color_hex(UI_COLOR_INK_DIM), 0);
+    lv_obj_set_style_text_color(p_card->lbl_age, lv_color_hex(UI_COLOR_INK_DIM), 0);
+    return;
+  }
 
   p_card->level = level;
   lv_obj_set_style_border_color(p_card->obj, lv_color_hex(border), 0);
@@ -340,7 +372,8 @@ static void cardCreate(lv_obj_t *parent, const inbox_item_t *p_item, bool compac
 
   memset(p_card, 0, sizeof(card_t));
   strncpy(p_card->id, p_item->id, sizeof(p_card->id) - 1);
-  p_card->ts = p_item->ts;
+  p_card->ts  = p_item->ts;
+  p_card->wip = (p_item->wip != 0);
 
   p_card->obj = row(parent, compact ? 10 : 12);
   lv_obj_set_width(p_card->obj, LV_PCT(100));
@@ -364,7 +397,16 @@ static void cardCreate(lv_obj_t *parent, const inbox_item_t *p_item, bool compac
   col = column(p_card->obj, 2);
   lv_obj_set_flex_grow(col, 1);
   lv_obj_set_height(col, LV_SIZE_CONTENT);
-  itemTitle(buf, sizeof(buf), p_item->kind, p_item->from, p_item->where);
+  if (p_card->wip)
+  {
+    char title[112];
+    itemTitle(title, sizeof(title), p_item->kind, p_item->from, p_item->where);
+    snprintf(buf, sizeof(buf), "처리 중 · %s", title);
+  }
+  else
+  {
+    itemTitle(buf, sizeof(buf), p_item->kind, p_item->from, p_item->where);
+  }
   p_card->lbl_title = labelDots(col, buf, uiFont(compact ? 17 : 18), UI_COLOR_INK);
   p_card->lbl_text  = labelDots(col, p_item->text, uiFont(compact ? 15 : 16), UI_COLOR_INK_DIM);
 
@@ -380,7 +422,7 @@ static void cardsRefresh(void)
   for (int i=0; i<card_cnt; i++)
   {
     uint32_t sec = (view.now > cards[i].ts) ? view.now - cards[i].ts : 0;
-    int      lv  = ageLevel(sec);
+    int      lv  = cards[i].wip ? LEVEL_WIP : ageLevel(sec);
 
     ageText(buf, sizeof(buf), sec);
     lv_label_set_text(cards[i].lbl_age, buf);
@@ -534,7 +576,7 @@ static void buildWaiting(bool cry)
   bool compact = cry || view.count > 2;
 
   if (cry == false)
-    uiCreateLabel(right, "밥 주세요 (답장 대기)", uiFont(20), UI_COLOR_INK);
+    uiCreateLabel(right, view.active > 0 ? "밥 주세요 (답장 대기)" : "처리 중인 요청", uiFont(20), UI_COLOR_INK);
 
   cardList(right, compact);
 
@@ -611,6 +653,7 @@ void pingpetBuildRight(void)
     case INBOX_STATE_HUNGRY: buildWaiting(false);  break;
     case INBOX_STATE_CRY:    buildWaiting(true);   break;
     case INBOX_STATE_EAT:    buildEat();           break;
+    case INBOX_STATE_WORK:   buildWaiting(false);  break;
   }
   cardsRefresh();
 
@@ -642,7 +685,8 @@ static void applyState(void)
   lv_obj_set_style_text_color(lbl_date, lv_color_hex(cry ? UI_COLOR_TEXT_ON_ERROR : UI_COLOR_INK_DIM), 0);
   lv_obj_set_style_text_color(lbl_summary, lv_color_hex(bar_text), 0);
 
-  petSetState((pet_state_t)view.state);
+  // 작업 중은 업데이트 때와 같은 얼굴 (웃는 눈 + 오물거리는 입 : 열심히 먹는 중)
+  petSetState(view.state == INBOX_STATE_WORK ? PET_STATE_UPDATE : (pet_state_t)view.state);
   lv_label_set_text(lbl_msg, pet_msg[view.state]);
 
   lv_obj_set_hidden(badge, view.state != INBOX_STATE_EAT);
@@ -656,7 +700,8 @@ static void applyState(void)
 static void refreshBar(void)
 {
   bool cry = (view.state == INBOX_STATE_CRY);
-  char buf[64];
+  char buf[112];
+  int  len;
 
   if (view.time_valid)
   {
@@ -684,15 +729,21 @@ static void refreshBar(void)
     snprintf(buf, sizeof(buf), "미응답 0건");
     lv_obj_set_style_text_color(lbl_summary, lv_color_hex(UI_COLOR_INK_DIM), 0);
   }
+  else if (view.active == 0)
+  {
+    snprintf(buf, sizeof(buf), "처리 중 %d건", view.wip);
+    lv_obj_set_style_text_color(lbl_summary, lv_color_hex(UI_COLOR_INK), 0);
+  }
   else
   {
     uint32_t min = view.oldest_sec / 60;
 
     if (min < 60)
-      snprintf(buf, sizeof(buf), "미응답 %d건 · 최장 %lu분", view.count, (unsigned long)min);
+      len = snprintf(buf, sizeof(buf), "미응답 %d건 · 최장 %lu분", view.active, (unsigned long)min);
     else
-      snprintf(buf, sizeof(buf), "미응답 %d건 · 최장 %lu시간 %lu분", view.count,
-               (unsigned long)(min / 60), (unsigned long)(min % 60));
+      len = snprintf(buf, sizeof(buf), "미응답 %d건 · 최장 %lu시간", view.active, (unsigned long)(min / 60));
+    if (view.wip > 0 && len > 0 && len < (int)sizeof(buf))
+      snprintf(&buf[len], sizeof(buf) - len, " · 처리 중 %d", view.wip);
     lv_obj_set_style_text_color(lbl_summary, lv_color_hex(cry ? UI_COLOR_TEXT_ON_ERROR : UI_COLOR_INK), 0);
   }
   lv_label_set_text(lbl_summary, buf);

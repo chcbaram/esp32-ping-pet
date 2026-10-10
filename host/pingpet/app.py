@@ -18,7 +18,7 @@ CRY_SEC  = 30 * 60
 
 class PingPetApp:
   def __init__(self, simulate: bool = False, dry_run: bool = False, port: str | None = None,
-               include_bots: bool = False, self_test: bool = False):
+               include_bots: bool = False, self_test: bool = False, scan_days: int = 3):
     self.simulate = simulate
     self.board = BoardLink(dry_run=dry_run, port=port)
     self.tracker = Tracker(self.board.send, None if simulate else data_dir() / "state.json")
@@ -29,7 +29,8 @@ class PingPetApp:
       self.source = Simulator(self.tracker)
     else:
       from .slack_source import SlackSource
-      self.source = SlackSource(self.tracker, include_bots=include_bots, self_test=self_test)
+      self.source = SlackSource(self.tracker, include_bots=include_bots, self_test=self_test,
+                                scan_days=scan_days)
 
     self.board.on_connect = self._on_connect
     self.board.on_message = self._on_board
@@ -80,6 +81,10 @@ class PingPetApp:
       self.open_item(str(msg.get("id", "")))
     elif t == "ack":
       self.tracker.resolve(str(msg.get("id", "")), "ack")
+    elif t == "sync":            # 보드가 목록을 다시 청한다 (데모를 끈 뒤)
+      self.board.send(self.tracker.sync_msg())
+    elif t in ("wip", "unwip"):
+      self.tracker.set_wip(str(msg.get("id", "")), t == "wip")
 
   def open_item(self, item_id: str):
     url = None if self.simulate else self.source.channel_url(item_id)
@@ -91,9 +96,12 @@ class PingPetApp:
   def status(self) -> dict:
     items = self.tracker.snapshot()
     now = int(time.time())
-    oldest = now - items[0]["ts"] if items else 0
+    active = [i for i in items if not i.get("wip")]
+    oldest = now - active[0]["ts"] if active else 0
     if not items:
       state = "idle"
+    elif not active:
+      state = "work"
     elif oldest > CRY_SEC:
       state = "cry"
     else:

@@ -13,7 +13,9 @@ extern "C" {
  * 맥 중계(USB JSON) 와 데모 모드가 데이터를 넣고, 화면은 inboxGetView() 스냅숏만 읽는다.
  * 여러 태스크(cli, cmd, ui)에서 부르므로 안에서 잠근다.
  *
- *   상태    : 미응답 0 건 = 여유, 1 건 이상 = 배고픔, 가장 오래된 요청 30 분 초과 = 울음,
+ *   처리 중 : 봤지만 시간이 걸리는 요청 (보드에서 고르거나 Slack 에서 👀). 배부름 · 울음 계산에서 뺀다
+ *   상태    : 미응답 0 건 = 여유, 처리 중만 있으면 = 작업 중,
+ *             (처리 중이 아닌) 1 건 이상 = 배고픔, 그중 가장 오래된 요청 30 분 초과 = 울음,
  *             done 을 받으면 4 초 냠냠 뒤 다시 계산
  *   배부름  : 10 에서 미응답 1 건마다 -2, 가장 오래된 요청이 10 분을 넘을 때마다 -1, 최소 0
  *   연결    : 90 초 동안 tick 이 없으면 끊김
@@ -42,6 +44,7 @@ typedef enum
   INBOX_STATE_HUNGRY,
   INBOX_STATE_CRY,
   INBOX_STATE_EAT,
+  INBOX_STATE_WORK,       // 처리 중인 요청만 남았다
 } inbox_state_t;
 
 typedef enum
@@ -60,6 +63,7 @@ typedef struct
   char     where[48];     // "DM", "그룹 DM", "#hw-team"
   char     text[160];     // 맥이 80 자로 자른 본문
   uint32_t ts;            // 받은 시각 (유닉스 초)
+  uint8_t  wip;           // 처리 중
 } inbox_item_t;
 
 typedef struct
@@ -88,15 +92,17 @@ typedef struct
 
   inbox_link_t  link;
 
-  // 목록 (받은 순, 오래된 것이 앞)
+  // 목록 (처리 중이 아닌 것 → 처리 중인 것, 각각 받은 순)
   uint8_t       count;
+  uint8_t       active;           // 처리 중이 아닌 것
+  uint8_t       wip;              // 처리 중
   inbox_item_t  item[INBOX_ITEM_MAX];
   inbox_stats_t stats;
 
   // 계산 값
   inbox_state_t state;
   uint8_t       fullness;         // 0 ~ 10
-  uint32_t      oldest_sec;       // 가장 오래된 요청이 기다린 시간
+  uint32_t      oldest_sec;       // 처리 중이 아닌 것 중 가장 오래된 요청이 기다린 시간
 
   // 냠냠 (done 뒤 4 초)
   inbox_item_t  eat_item;
@@ -127,6 +133,8 @@ bool     inboxDemoIsOn(void);
 void     inboxGetView(inbox_view_t *p_view);
 void     inboxRequestOpen(const char *id);   // 카드 탭 : 맥 슬랙에서 대화 열기
 void     inboxRequestAck(const char *id);    // 카드 길게 누름 : 답장 없이 처리
+void     inboxRequestWip(const char *id, bool on);   // 카드 길게 누름 : 처리 중 / 해제
+void     inboxRequestSync(void);             // 맥에 목록 전체를 다시 청한다 (데모를 끈 뒤)
 
 // 보드 → 맥 (cmd 채널이 붙으면 그쪽에서 등록한다)
 void     inboxSetRequestFunc(void (*func)(const char *type, const char *id));

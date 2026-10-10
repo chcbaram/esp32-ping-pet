@@ -22,11 +22,13 @@
  *               ota_end {} / ota_abort {}
  *   보드 → 맥   hello {fw, ota: 1}                연결 직후. 맥은 sync 로 답한다. ota : USB OTA 를 받는다
  *               open {id}                         카드 탭
- *               ack {id}                          카드 길게 누름
+ *               ack {id}                          카드 길게 누름 → 치우기
+ *               wip {id} / unwip {id}             카드 길게 누름 → 처리 중 / 해제
+ *               sync {}                           목록 전체를 다시 청한다 (데모를 끈 뒤). 맥은 sync 로 답한다
  *               ota_ready {} / ota_ack {off} / ota_done {} / ota_error {msg}
  *                                                 OTA 는 한 조각씩 : 맥은 ota_ack 를 받고 다음 조각을 보낸다
  *
- *   item  : {id, kind: dm | mpim | mention, from, where, text, ts}
+ *   item  : {id, kind: dm | mpim | mention, from, where, text, ts, wip}   wip : 처리 중 (없으면 0)
  *   stats : {handled_today, avg_wait_min, recent: [{kind, from, where, waited, at}]}
  *   인계 문서에 더한 것 : tz (초), recent 의 kind · at
  */
@@ -171,6 +173,7 @@ static void parseItem(const cJSON *p_obj, inbox_item_t *p_item)
   strncpy(p_item->text,  jsonStr(p_obj, "text"),  sizeof(p_item->text) - 1);
   p_item->kind = jsonKind(p_obj);
   p_item->ts   = jsonU32(p_obj, "ts");
+  p_item->wip  = jsonU32(p_obj, "wip") ? 1 : 0;
 }
 
 static bool parseStats(const cJSON *p_obj, inbox_stats_t *p_stats)

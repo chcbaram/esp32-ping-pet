@@ -125,16 +125,35 @@ static void insertLocked(const inbox_item_t *p_item)
   item_cnt++;
 }
 
+static int activeCountLocked(void)
+{
+  int cnt = 0;
+
+  for (int i=0; i<item_cnt; i++)
+  {
+    if (items[i].wip == 0)
+      cnt++;
+  }
+  return cnt;
+}
+
+/* 처리 중이 아닌 것 중 가장 오래된 것 (목록은 받은 순) */
 static uint32_t oldestSecLocked(uint32_t now)
 {
-  if (item_cnt == 0 || now == 0 || now < items[0].ts)
-    return 0;
-  return now - items[0].ts;
+  for (int i=0; i<item_cnt; i++)
+  {
+    if (items[i].wip != 0)
+      continue;
+    if (now == 0 || now < items[i].ts)
+      return 0;
+    return now - items[i].ts;
+  }
+  return 0;
 }
 
 static uint8_t fullnessLocked(uint32_t now)
 {
-  int32_t full = INBOX_FULL_MAX - 2 * item_cnt - (int32_t)(oldestSecLocked(now) / INBOX_WARN_SEC);
+  int32_t full = INBOX_FULL_MAX - 2 * activeCountLocked() - (int32_t)(oldestSecLocked(now) / INBOX_WARN_SEC);
 
   return (uint8_t)constrain(full, 0, INBOX_FULL_MAX);
 }
@@ -283,9 +302,19 @@ void inboxGetView(inbox_view_t *p_view)
   else
     p_view->link = INBOX_LINK_OK;
 
-  p_view->count = item_cnt;
-  memcpy(p_view->item, items, sizeof(inbox_item_t) * item_cnt);
-  p_view->stats = stats;
+  // 처리 중이 아닌 것을 앞에, 처리 중인 것을 뒤에 (각각 받은 순)
+  p_view->count = 0;
+  for (int pass=0; pass<2; pass++)
+  {
+    for (int i=0; i<item_cnt; i++)
+    {
+      if ((items[i].wip != 0) == (pass == 1))
+        p_view->item[p_view->count++] = items[i];
+    }
+  }
+  p_view->active = activeCountLocked();
+  p_view->wip    = item_cnt - p_view->active;
+  p_view->stats  = stats;
 
   p_view->oldest_sec = oldestSecLocked(now);
   p_view->fullness   = fullnessLocked(now);
@@ -299,6 +328,8 @@ void inboxGetView(inbox_view_t *p_view)
     p_view->state = INBOX_STATE_EAT;
   else if (item_cnt == 0)
     p_view->state = INBOX_STATE_IDLE;
+  else if (p_view->active == 0)
+    p_view->state = INBOX_STATE_WORK;
   else if (p_view->oldest_sec > INBOX_CRY_SEC)
     p_view->state = INBOX_STATE_CRY;
   else
@@ -324,6 +355,31 @@ void inboxRequestOpen(const char *id)
     request_func("open", id);
 }
 
+void inboxRequestWip(const char *id, bool on)
+{
+  int idx;
+
+  logPrintf("[  ] inbox wip %s %s\n", id, on ? "on" : "off");
+  if (request_func != NULL)
+    request_func(on ? "wip" : "unwip", id);
+
+  // 맥이 add 로 다시 보내기 전에 화면에 먼저 반영한다 (맥이 없거나 데모일 때도 동작한다)
+  lock();
+  idx = findLocked(id);
+  if (idx >= 0)
+  {
+    items[idx].wip = on ? 1 : 0;
+    version++;
+  }
+  unLock();
+}
+
+void inboxRequestSync(void)
+{
+  if (request_func != NULL)
+    request_func("sync", "");
+}
+
 void inboxRequestAck(const char *id)
 {
   logPrintf("[  ] inbox ack %s\n", id);
@@ -342,7 +398,7 @@ void cliInbox(cli_args_t *args)
 
   if (args->argc == 1 && args->isStr(0, "info"))
   {
-    const char *state_str[] = {"idle", "hungry", "cry", "eat"};
+    const char *state_str[] = {"idle", "hungry", "cry", "eat", "work"};
     const char *link_str[]  = {"none", "ok", "lost", "demo"};
 
     inboxGetView(&view);

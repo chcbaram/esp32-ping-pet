@@ -20,6 +20,10 @@ oauth_config:
       - groups:history
       - channels:read     # conversations.info → 카드에 #채널이름 (없으면 채널 ID 가 보인다)
       - groups:read       # 비공개 채널 이름
+      - im:read           # 시작할 때 훑기 : 내 DM 목록
+      - mpim:read         # 시작할 때 훑기 : 내 그룹 DM 목록
+      - search:read       # 시작할 때 훑기 : 최근 나를 멘션한 글
+      - reactions:read    # 내가 단 👀(처리 중) · ✅(완료)
       - users:read
 settings:
   event_subscriptions:
@@ -28,6 +32,8 @@ settings:
       - message.mpim
       - message.channels
       - message.groups
+      - reaction_added
+      - reaction_removed
   socket_mode_enabled: true
   org_deploy_enabled: false
   token_rotation_enabled: false

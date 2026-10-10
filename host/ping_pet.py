@@ -15,6 +15,7 @@ import threading
 
 from pingpet import APP_NAME, __version__
 from pingpet.app import PingPetApp
+from pingpet import settings
 from pingpet.platform_util import log_file
 
 
@@ -27,6 +28,8 @@ def main():
   ap.add_argument("--include-bots", action="store_true", help="봇 · 앱이 보낸 DM 도 미응답으로")
   ap.add_argument("--self-test", action="store_true",
                   help="혼자 시험 : 나에게 보내는 DM 에 '핑 …' 으로 카드 추가, 다른 글로 답장")
+  ap.add_argument("--scan-days", type=int, default=None, metavar="N",
+                  help="시작할 때 최근 N 일의 미응답을 훑는다 (0 이면 안 함). 없으면 트레이에서 고른 값 (기본 3)")
   ap.add_argument("-v", "--verbose", action="store_true")
   args = ap.parse_args()
 
@@ -36,7 +39,8 @@ def main():
   logging.getLogger("slack_sdk").setLevel(logging.WARNING)
 
   app = PingPetApp(simulate=args.simulate, dry_run=args.dry_run, port=args.port,
-                   include_bots=args.include_bots, self_test=args.self_test)
+                   include_bots=args.include_bots, self_test=args.self_test,
+                   scan_days=settings.get("scan_days") if args.scan_days is None else args.scan_days)
   app.start()
 
   if args.no_tray:

@@ -15,7 +15,7 @@ import time
 
 from PIL import Image, ImageDraw
 
-from . import APP_ID, APP_NAME, __version__
+from . import APP_ID, APP_NAME, __version__, settings
 from .firmware import Updater, find_image
 from .platform_util import autostart_enabled, autostart_set, log_file, open_file
 
@@ -33,7 +33,7 @@ LOGO_X, LOGO_Y, LOGO_W = 0.0, 4.67, 288.72
 # 다른 아이콘(약 16 pt)과 크기를 맞춘다. Windows · Linux 트레이는 작게 그려지므로 조금만
 LOGO_PAD = 0.14 if sys.platform == "darwin" else 0.04
 
-STATE_TEXT = {"idle": "배불러요", "hungry": "배고파요", "cry": "엉엉… 너무 배고파요"}
+STATE_TEXT = {"idle": "배불러요", "hungry": "배고파요", "cry": "엉엉… 너무 배고파요", "work": "처리 중"}
 
 
 def draw_logo(size: int = 64, dot: bool = False) -> Image.Image:
@@ -111,11 +111,14 @@ class Tray:
     yield Item(f"{APP_NAME} — {STATE_TEXT[st['state']]} · 미응답 {st['count']}건", None, enabled=False)
     yield Item(f"보드 : {st['board']}", None, enabled=False)
     yield Item(f"Slack : {st['slack']}", None, enabled=False)
+    scan = getattr(self.app.source, "scan_status", "")
+    if scan:
+      yield Item(scan, None, enabled=False)
     yield Menu.SEPARATOR
 
     items = st["items"]
     for it in items[:ITEM_MENU_MAX]:
-      label = f"{it['from']} · {it['where']}  ({_age(now - it['ts'])})"
+      label = f"{it['from']} · {it['where']}  ({'처리 중, ' if it.get('wip') else ''}{_age(now - it['ts'])})"
       yield Item(label, self._opener(it["id"]))
     if len(items) > ITEM_MENU_MAX:
       yield Item(f"외 {len(items) - ITEM_MENU_MAX}건", None, enabled=False)
@@ -125,11 +128,31 @@ class Tray:
 
     yield Item("보드 포트 잠시 놓기 (터미널 · flash.py 용)", self._toggle_pause,
                checked=lambda _: self.app.board.paused, enabled=not self.updater.busy)
+    if not self.app.simulate:
+      yield Item("시작할 때 훑기", Menu(*self._scan_menu()))
     yield Item("보드 펌웨어 업데이트", Menu(*self._fw_menu()))
     yield Menu.SEPARATOR
     yield Item("로그 보기", lambda: open_file(log_file()))
     yield Item("로그인할 때 실행", self._toggle_autostart, checked=lambda _: autostart_enabled())
     yield Item(f"종료  (v{__version__})", self._quit)
+
+  def _scan_menu(self):
+    Item = self.pystray.MenuItem
+    src = self.app.source
+    yield Item("켜기 전에 와 있던 미응답을 찾는 기간", None, enabled=False)
+    for days, label in ((0, "끄기"), (1, "1일"), (3, "3일"), (7, "7일")):
+      yield Item(label, self._scan_setter(days), radio=True,
+                 checked=lambda _, d=days: settings.get("scan_days") == d)
+    yield self.pystray.Menu.SEPARATOR
+    yield Item("지금 다시 훑기", lambda: src.rescan(),
+               enabled=src.connected and settings.get("scan_days") > 0 and src.scan_status != "훑는 중…")
+
+  def _scan_setter(self, days: int):
+    def f():
+      settings.set("scan_days", days)
+      self.app.source.scan_days = days
+      self._kick()
+    return f
 
   def _fw_menu(self):
     Item = self.pystray.MenuItem

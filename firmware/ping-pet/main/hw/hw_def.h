@@ -6,7 +6,7 @@
 #include "bsp.h"
 
 
-#define _DEF_FIRMWATRE_VERSION    "V261010R6"
+#define _DEF_FIRMWATRE_VERSION    "V261010R8"
 #define _DEF_BOARD_NAME           "PING-PET"
 
 

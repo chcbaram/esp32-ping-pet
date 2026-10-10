@@ -8,7 +8,7 @@
  *
  *   1  여유     8 s   목록 비움, 오늘 통계
  *   2  배고픔   8 s   DM 12 분 전, 멘션 4 분 전
- *   3  울음    14 s   가상 시계 +26 분, 6 건 더 (모두 8 건, 화면을 넘쳐 스크롤된다)
+ *   3  울음    14 s   가상 시계 +26 분, 6 건 더 (모두 8 건, 화면을 넘쳐 스크롤된다. 그중 1 건은 처리 중)
  *   4  냠냠     5 s   가장 오래된 DM 에 답장 → 남은 요청
  *   5  냠냠    10 s   나머지 7 건에 1.2 초 간격으로 답장 → 여유, 처음으로
  */
@@ -153,6 +153,7 @@ void demoStepCry(void)
   // 화면을 넘치게 : 스크롤해 보는 용도
   demoItem(&item, "D03", INBOX_KIND_DM, "정다은", "DM",
            "견적서 검토 부탁드려요", 9 * 60);
+  item.wip = 1;                         // 처리 중 (목록 아래, 흐리게)
   inboxAdd(&item);
   demoItem(&item, "G01", INBOX_KIND_MPIM, "한도윤", "그룹 DM",
            "점심 메뉴 투표해 주세요", 7 * 60);
@@ -229,6 +230,7 @@ static void demoStop(void)
   is_on = false;
   inboxSetDemo(false);
   inboxClear();
+  inboxRequestSync();       // 맥 중계가 붙어 있으면 진짜 목록을 다시 받는다 (데모가 덮어썼다)
 }
 
 void inboxDemoUpdate(void)
