@@ -9,3 +9,7 @@ dist/
 # Python
 __pycache__/
 .venv/
+
+# 배포 빌드
+host/packaging/build/
+host/packaging/dist/

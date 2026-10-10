@@ -92,18 +92,32 @@ python3 tools/release.py           # 릴리즈 파일을 dist/ 에 만든다
 
 전원을 켜면 Ping Pet 화면이 바로 뜬다. 중계 없이 보려면 상단 바를 길게 눌러 설정 → **데모 모드**.
 
-### 2. 중계 실행
+### 2. 중계 앱 설치
 
-> 설치 파일(macOS `.dmg`, Windows `Setup.exe`, Linux `.AppImage`)은 **준비 중**이다. 지금은 파이썬으로 실행한다.
+[Releases](https://github.com/chcbaram/esp32-ping-pet/releases) 에서 OS 에 맞는 파일을 받는다.
+
+| OS | 파일 | 설치 |
+|---|---|---|
+| macOS | `PingPet-<버전>-macos.dmg` | 열어서 Ping Pet 을 응용 프로그램으로 끌어다 놓는다. 서명하지 않은 앱이라 처음엔 **우클릭 → 열기** |
+| Windows | `PingPet-<버전>-windows-Setup.exe` | 실행해 설치. SmartScreen 이 막으면 **추가 정보 → 실행** |
+| Linux | `PingPet-<버전>-linux-x86_64.AppImage` | `chmod +x` 뒤 실행 |
+
+실행하면 메뉴 막대 · 트레이에 답답이 아이콘이 뜬다. 앱 안에 같은 버전의 보드 펌웨어가 들어 있어 트레이 → **보드 펌웨어 업데이트** 로 보드를 올린다.
+맥은 처음 Slack 토큰을 읽을 때 키체인 접근을 묻는다 → **항상 허용**.
+
+#### 소스에서 실행
 
 ```bash
 cd host
 python3 -m venv .venv
-.venv/bin/pip install slack_sdk pyserial keyring pystray Pillow "esptool<5"
+.venv/bin/pip install -r requirements.txt
 .venv/bin/python ping_pet.py --simulate             # Slack 없이 보드 연결 시험
 .venv/bin/python ping_pet.py                        # Slack 연결 (아래 설정 뒤). 메뉴 막대 · 트레이에 아이콘
 .venv/bin/python ping_pet.py --no-tray              # 트레이 없이 (서비스 등)
 ```
+
+설치 파일은 `bash packaging/build_mac.sh` (맥), `bash packaging/build_linux.sh` (리눅스), 윈도우는 PyInstaller + Inno Setup (`packaging/ping_pet.iss`).
+태그 `v*` 를 올리면 GitHub Actions 가 펌웨어와 세 OS 의 설치 파일을 빌드해 Release 를 만든다 (`.github/workflows/release.yml`).
 
 중계는 보드를 USB VID:PID `1209:E324` 로 찾는다. 포트 이름을 신경 쓸 필요가 없다.
 

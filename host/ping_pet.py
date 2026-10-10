@@ -33,7 +33,9 @@ def main():
   ap.add_argument("-v", "--verbose", action="store_true")
   args = ap.parse_args()
 
-  handlers = [logging.FileHandler(log_file(), encoding="utf-8"), logging.StreamHandler(sys.stderr)]
+  handlers = [logging.FileHandler(log_file(), encoding="utf-8")]
+  if sys.stderr is not None:           # 창 없이 묶은 앱(윈도우)은 stderr 가 없다
+    handlers.append(logging.StreamHandler(sys.stderr))
   logging.basicConfig(level=logging.DEBUG if args.verbose else logging.INFO,
                       format="%(asctime)s %(levelname)s %(message)s", handlers=handlers)
   logging.getLogger("slack_sdk").setLevel(logging.WARNING)

@@ -36,12 +36,12 @@ LOGO_PAD = 0.14 if sys.platform == "darwin" else 0.04
 STATE_TEXT = {"idle": "배불러요", "hungry": "배고파요", "cry": "엉엉… 너무 배고파요", "work": "처리 중"}
 
 
-def draw_logo(size: int = 64, dot: bool = False) -> Image.Image:
+def draw_logo(size: int = 64, dot: bool = False, pad: float | None = None) -> Image.Image:
   """기본 로고 (몸통, 반원 눈, 입 막대, 발). dot : 미응답이 있으면 오른쪽 위에 빨간 점.
   4 배로 그려 줄여서 가장자리를 부드럽게"""
   k = 4
   n = size * k
-  pad = n * LOGO_PAD
+  pad = n * (LOGO_PAD if pad is None else pad)
   s = (n - pad * 2) / LOGO_W
   img = Image.new("RGBA", (n, n), (0, 0, 0, 0))
   d = ImageDraw.Draw(img)

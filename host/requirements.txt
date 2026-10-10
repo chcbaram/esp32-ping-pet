@@ -1,0 +1,6 @@
+# 맥 · PC 중계 (python 3.10 이상)
+slack_sdk
+pyserial
+keyring
+pystray
+Pillow
