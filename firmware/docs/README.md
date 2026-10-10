@@ -10,9 +10,9 @@ Guition JC4880P443C (ESP32-P4 + ESP32-C6, 4.3" 480×800 MIPI-DSI) 보드 기준 
 | | |
 |---|---|
 | 보드 | JC4880P443C V1.0 (회로도 `hardware/JC4880P443_V1.0.pdf`) — **ESP32-P4 rev v3.2** (esptool 로 확인) |
-| 펌웨어 | `ping-pet` — UART0 + 로그 + CLI, **USB HS CDC (esp_tinyusb)**, 모듈 시스템, **버튼 없이 다운로드**, **LCD · 터치 · 백라이트**, **LVGL 9.6**. 보드에서 동작 확인 |
+| 펌웨어 | `ping-pet` — UART0 + 로그 + CLI, **USB HS CDC (esp_tinyusb)**, 모듈 시스템, **버튼 없이 다운로드**, **LCD · 터치 · 백라이트**, **LVGL 9.6**, **Ping Pet 대시보드 · 답답이 · 데모 모드 · 설정**. 보드에서 동작 확인 |
 | 클럭 | CPU 400 MHz, PSRAM 32 MB **200 MHz**, Flash 16 MB |
-| 빌드 | ESP-IDF v5.5.5, `-Og` — 앱 약 324 KB / 8 MB 파티션 |
+| 빌드 | ESP-IDF v5.5.5, `-Og` — 앱 약 846 KB / 8 MB, 폰트 2.1 MB / 3 MB (fonts 파티션) |
 | USB | HS 커넥터 하나로 플래시 · CLI · 로그. 앱 `1209:E324`, ROM 다운로드 `303A:0012`, 시리얼 = MAC |
 
 ### 바로 다시 시작하기
@@ -22,14 +22,18 @@ get_idf                                  # ~/.zshrc 별칭 (IDF v5.5.5, ~/hdd/to
 cd firmware/ping-pet
 idf.py build
 python3 tools/flash.py                   # 버튼 없이 굽기. baram-term 이 포트를 열고 있으면 잠시 놓게 한다
+python3 tools/flash.py --fonts           # 처음 한 번, 그리고 폰트가 바뀔 때 (fonts 파티션)
+python3 tools/capture.py -o shot.png     # 화면 캡처
 ```
+
+전원을 켜면 Ping Pet 화면이 바로 뜬다. 맥 중계 없이 보려면 CLI `demo on` 또는 설정 앱(상단 바 길게 누르기)의 데모 모드.
 
 CLI 는 보드의 HS USB 포트(`/dev/cu.usbmodem…`)를 **115200** 으로 열면 된다 (baram-term). 프롬프트 `cli# `.
 
 ### 다음 작업
 
-1. UI 4 상태 화면과 로고 캐릭터 (목업: Slack 다마고치 UI 캔버스), 한글 폰트, 런처 구조 (HG-T113-S3 참고)
-2. cmd 채널 — 맥 중계 스크립트의 JSON 줄을 CDC(115200 이 아닌 보율)로 받는다
+1. 맥 중계 연결 — CDC cmd 채널(115200 이 아닌 보율)로 JSON 줄을 받아 inbox 에 넣는다, `host/ping_pet.py` 실행 (Slack 토큰)
+2. 답답이 이름을 어디에 보여 줄지 (보류, [24](24-ui.md) 8 절)
 3. HID (웹 설정 채널, PID `E325`) → [27](27-usb.md) 6절
 4. pid.codes 에 `1209:E324` ~ `E327` 등록 (사용자)
 
@@ -78,6 +82,7 @@ stm32h563-core 와 같다.
 | [21-uart-cli.md](21-uart-cli.md) | UART0 + 로그 + CLI, uart 드라이버 구조 | ✅ (UART0 핀은 보드에서 미확인) |
 | [22-lcd-touch.md](22-lcd-touch.md) | LCD · 터치 · 백라이트 — **알려진 문제 조사** (rev 3 DSI 클럭, 기본 st7701 드라이버 검은 화면, GT911 리셋 · 주소), 더블버퍼, 회전 | ✅ |
 | [23-lvgl.md](23-lvgl.md) | **LVGL 9.6** — DIRECT 모드 + PPA 회전 (바뀐 영역만, PSRAM 200 MHz 에서 0.74 ms), 길게 누르기 | ✅ |
+| [24-ui.md](24-ui.md) | **UI** — inbox 모델, 4 상태 대시보드, 답답이 애니메이션, 폰트(Tiny TTF, fonts 파티션), 글자 크기, 설정 앱, 데모 모드, 캡처 | ✅ (맥 중계 남음) |
 | [27-usb.md](27-usb.md) | **USB HS CDC** — CDC 주인을 보율로 가름, **버튼 없이 ROM 다운로드**, VID/PID | ✅ (CLI `boot` 명령 미확인) |
 
 ## 출처

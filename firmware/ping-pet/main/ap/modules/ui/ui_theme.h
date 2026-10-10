@@ -69,6 +69,7 @@ const lv_font_t *uiFont(int32_t size);        /* Jua, 한글. 없는 기호(… 
 const lv_font_t *uiFontPixel(int32_t size);   /* Silkscreen, 숫자 · 영문 */
 
 #define UI_FONT_LEVEL_MAX     3
+#define UI_FONT_LEVEL_DEFAULT 1     /* 크게 (115 %). 책상 위에서 조금 떨어져 보므로 */
 uint8_t     uiThemeGetFontLevel(void);
 void        uiThemeSetFontLevel(uint8_t level);    /* 저장한다. 화면은 부르는 쪽이 다시 만든다 */
 const char *uiThemeGetFontLevelName(uint8_t level);

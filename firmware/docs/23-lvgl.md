@@ -104,4 +104,4 @@ heap int  : 514 KB free
 
 - [x] 갱신 시간 줄이기 — PSRAM 200 MHz, 바뀐 영역만 회전
 - [ ] `LV_USE_PPA` (LVGL PPA 렌더러) 효과 측정
-- [ ] 한글 폰트, 4 상태 UI, 런처 구조 (HG-T113-S3 참고)
+- [x] 한글 폰트, 4 상태 UI, 런처 → [24](24-ui.md)

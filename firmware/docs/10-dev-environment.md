@@ -39,10 +39,15 @@ alias get_idf5.5="..."   # 같은 내용
 get_idf
 cd firmware/ping-pet
 idf.py build
-python3 tools/flash.py
+python3 tools/flash.py              # 앱 (약 17 초)
+python3 tools/flash.py --fonts      # 앱 + fonts 파티션 (처음 한 번, 폰트가 바뀔 때)
+python3 tools/capture.py -o a.png   # 화면 캡처 (1.6 초)
 ```
 
 `tools/flash.py` 가 하는 일 → [27](27-usb.md) 4절. `idf.py flash` 는 리셋 뒤 USB 재열거를 기다리지 못해 실패한다.
+**압축하지 않고 쓴다** — 3 MB 이미지에서 USB-OTG 압축 쓰기가 `C900: Too much data` 로 멈췄다. 속도 차이는 없다 ([24](24-ui.md) 5절).
+
+소스 파일을 새로 만들면 `idf.py reconfigure` — `main/CMakeLists.txt` 의 `file(GLOB)` 은 구성 단계에서만 목록을 만든다.
 
 보드가 다운로드 모드에 들어가지 않을 때 (앱이 죽었거나 USB 를 안 여는 이미지일 때):
 **BOOT 를 누른 채 RST 를 눌렀다 떼고, 1 초 뒤 BOOT 를 뗀다.** 그 다음 `tools/flash.py` 는 ROM 장치를 바로 찾아 쓴다.
@@ -69,3 +74,5 @@ baram-ctl --match e8:f6:0a:e8:b4:1d send "module info" --until 'cli# $' --timeou
 |---|---|---|
 | `rm -rf` 가 Claude 자동 모드에서 막힘 | 되돌릴 수 없는 삭제로 분류 | 커밋된 파일은 `git rm` 으로 지운다 |
 | 쉘 변수에 담은 `--match X` 가 인자 하나로 넘어감 | zsh 는 변수를 단어로 쪼개지 않는다 | 인자를 직접 쓰거나 `"$M"` 을 값에만 쓴다 |
+| 새 .c 파일이 `undefined reference` | `file(GLOB)` 은 구성 때만 훑는다 | `idf.py reconfigure` |
+| 빌드가 실패했는데 예전 이미지가 구워짐 | `flash.py` 는 `build/flash_args` 를 그대로 쓴다 | 빌드 성공을 확인하고 굽는다 |

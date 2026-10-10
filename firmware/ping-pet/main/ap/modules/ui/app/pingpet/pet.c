@@ -522,6 +522,17 @@ static void animStopAll(void)
 
 lv_obj_t *petCreate(lv_obj_t *parent)
 {
+  /* app 을 다시 들어오면 (글자 크기 변경, 설정에서 돌아옴) 새로 만든다.
+     이전 상태를 잊어야 petSetState() 가 새 부품들을 숨긴다. 그대로 두면 같은 상태라며 돌아가서
+     모든 표정 부품이 한꺼번에 보인다. 이전 캔버스 버퍼도 푼다 (이전 객체는 app 화면과 함께 지워졌다) */
+  cur_state = PET_STATE_MAX;
+  if (onigiri_buf != NULL)
+  {
+    lv_draw_buf_destroy(onigiri_buf);
+    onigiri_buf = NULL;
+  }
+  onigiri_bite = 0;
+
   root = lv_obj_create(parent);
   lv_obj_remove_style_all(root);
   lv_obj_set_scrollable(root, false);

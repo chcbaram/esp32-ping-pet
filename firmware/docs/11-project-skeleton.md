@@ -22,8 +22,11 @@
 firmware/ping-pet/
 ├── CMakeLists.txt                 project(ping-pet)
 ├── sdkconfig.defaults             P4 rev 3, 400 MHz, PSRAM, 16 MB, 파티션, TinyUSB CDC
-├── partitions.csv                 앱 8 MB (UI 폰트 자리)
-├── tools/flash.py                 버튼 없이 굽기 ([27](27-usb.md))
+├── partitions.csv                 앱 8 MB, fonts 3 MB (data 0x40)
+├── tools/
+│   ├── flash.py                   버튼 없이 굽기 ([27](27-usb.md)), --fonts
+│   ├── fonts.py                   TTF 묶음 → fonts.bin ([24](24-ui.md) 5절)
+│   └── capture.py                 화면 캡처 → PNG
 └── main/
     ├── CMakeLists.txt             GLOB, WHOLE_ARCHIVE, -Wno-expansion-to-defined
     ├── idf_component.yml          esp_tinyusb ~2.4.0
@@ -32,9 +35,11 @@ firmware/ping-pet/
     │   ├── ap.c / ap.h / ap_def.h
     │   └── modules/
     │       ├── module.c / module.h        MODULE_DEF 자기 등록
-    │       └── common/
-    │           ├── cli/cli.c              CLI 포트 전환 (UART0 ↔ CDC)
-    │           └── usb/usb_task.c         usbInit + cdcInit
+    │       ├── common/
+    │       │   ├── cli/cli.c              CLI 포트 전환 (UART0 ↔ CDC)
+    │       │   └── usb/usb_task.c         usbInit + cdcInit
+    │       ├── inbox/                     미응답 목록 모델, 데모 모드 ([24](24-ui.md))
+    │       └── ui/                        테마, 런처, app (pingpet, settings), 폰트 ([24](24-ui.md))
     ├── bsp/bsp.c / bsp.h          delay, millis, micros, CPU 클럭
     ├── common/                    ← stm32h563-core 그대로
     │   ├── def.h, err_code.h, evt_code.h
@@ -46,7 +51,11 @@ firmware/ping-pet/
             ├── log.c              ← h563 (ESP 에서는 _write 제외)
             ├── uart.c             UART0 + 드라이버 훅 (ESP 로 다시 씀)
             ├── cdc.c              esp_tinyusb CDC + cdc_uart_driver
-            └── usb/usb.c, usb.h, usb_desc.c
+            ├── usb/usb.c, usb.h, usb_desc.c
+            ├── i2c.c, nvs.c
+            ├── lcd.c, lcd/st7701.c        ([22](22-lcd-touch.md))
+            ├── touch.c, touch/gt911.c     ([22](22-lcd-touch.md))
+            └── lvgl.c, lvgl/lv_port_*.c   ([23](23-lvgl.md))
 ```
 
 ---
@@ -82,12 +91,14 @@ MODULE_DEF(cli)
 `moduleInit()` 이 우선순위 순으로 `init()` 을 부르고, `moduleUpdate()` 가 등록 순으로 `update()` 를 부른다.
 
 ```
-cli# module info
+cli# module info        (2 단계 당시. 지금은 usb, inbox, cli, ui)
 count : 2
 idx  name             pri  update init
 0    usb              1    yes    OK
 1    cli              6    yes    OK
 ```
+
+UI app 도 같은 방식이다 — `APP_DEF(x)` 의 constructor 가 `launcherAddApp()` ([24](24-ui.md) 1 절).
 
 ---
 

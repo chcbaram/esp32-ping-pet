@@ -58,7 +58,7 @@ static int          font_cnt = 0;
 
 static const uint8_t font_pct[UI_FONT_LEVEL_MAX]   = {100, 115, 130};
 static const char   *font_name[UI_FONT_LEVEL_MAX]  = {"보통", "크게", "아주 크게"};
-static uint8_t       font_level = 0;
+static uint8_t       font_level = UI_FONT_LEVEL_DEFAULT;
 static uint8_t       brightness = 100;
 
 
@@ -102,7 +102,7 @@ bool uiThemeInit(void)
 
   // 저장해 둔 글자 크기 · 밝기
   if (nvsGet("font", &font_level, 1) != true || font_level >= UI_FONT_LEVEL_MAX)
-    font_level = 0;
+    font_level = UI_FONT_LEVEL_DEFAULT;
   if (nvsGet("bl", &brightness, 1) != true || brightness < 10 || brightness > 100)
     brightness = 100;
   lcdSetBackLight(brightness);
