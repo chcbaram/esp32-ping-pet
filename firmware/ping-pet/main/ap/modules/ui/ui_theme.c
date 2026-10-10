@@ -4,11 +4,23 @@
 #ifdef _USE_HW_LVGL
 
 
-/* 펌웨어에 넣은 TTF (main/CMakeLists.txt EMBED_FILES). 둘 다 OFL. */
-extern const uint8_t jua_ttf_start[]        asm("_binary_Jua_Regular_ttf_start");
-extern const uint8_t jua_ttf_end[]          asm("_binary_Jua_Regular_ttf_end");
-extern const uint8_t silkscreen_ttf_start[] asm("_binary_Silkscreen_Regular_ttf_start");
-extern const uint8_t silkscreen_ttf_end[]   asm("_binary_Silkscreen_Regular_ttf_end");
+#include "esp_partition.h"
+
+
+/* 폰트는 fonts 파티션에 따로 둔다 (tools/fonts.py 로 묶고 flash.py --fonts 로 쓴다). 둘 다 OFL.
+ * 펌웨어에 넣으면 앱이 3 MB 가 되어 굽기가 느려진다 (docs/24).
+ * 부팅할 때 파티션을 메모리에 매핑해 이름으로 찾는다. 펌웨어에 넣었을 때와 같이 플래시를 그대로 읽는다. */
+#define FONTS_MAGIC         "PPFT"
+#define FONTS_ENTRY_LEN     48
+
+typedef struct
+{
+  const uint8_t *data;
+  size_t         size;
+} ttf_t;
+
+static ttf_t ttf_jua;
+static ttf_t ttf_silkscreen;
 
 
 #define FONT_MAX          16
@@ -47,13 +59,48 @@ static int          font_cnt = 0;
 
 
 
+static bool fontsFind(const uint8_t *p_img, size_t img_size, const char *name, ttf_t *p_ttf)
+{
+  uint32_t count = *(const uint32_t *)(p_img + 8);
+
+  for (uint32_t i=0; i<count && 16 + (i + 1) * FONTS_ENTRY_LEN <= img_size; i++)
+  {
+    const uint8_t *p_ent = p_img + 16 + i * FONTS_ENTRY_LEN;
+    uint32_t       off   = *(const uint32_t *)(p_ent + 32);
+    uint32_t       size  = *(const uint32_t *)(p_ent + 36);
+
+    if (strncmp((const char *)p_ent, name, 32) == 0 && off + size <= img_size)
+    {
+      p_ttf->data = p_img + off;
+      p_ttf->size = size;
+      return true;
+    }
+  }
+  return false;
+}
+
 bool uiThemeInit(void)
 {
-  logPrintf("[OK] uiThemeInit()\n");
-  logPrintf("     Jua %d KB, Silkscreen %d KB\n",
-            (int)(jua_ttf_end - jua_ttf_start) / 1024,
-            (int)(silkscreen_ttf_end - silkscreen_ttf_start) / 1024);
-  return true;
+  const esp_partition_t  *p_part;
+  const void             *p_img = NULL;
+  esp_partition_mmap_handle_t handle;
+  bool ret = false;
+
+  p_part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, 0x40, "fonts");
+  if (p_part != NULL &&
+      esp_partition_mmap(p_part, 0, p_part->size, ESP_PARTITION_MMAP_DATA, &p_img, &handle) == ESP_OK &&
+      memcmp(p_img, FONTS_MAGIC, 4) == 0)
+  {
+    ret  = fontsFind(p_img, p_part->size, "Jua-Regular.ttf", &ttf_jua);
+    ret &= fontsFind(p_img, p_part->size, "Silkscreen-Regular.ttf", &ttf_silkscreen);
+  }
+
+  logPrintf("[%s] uiThemeInit()\n", ret ? "OK" : "E_");
+  if (ret)
+    logPrintf("     fonts : Jua %d KB, Silkscreen %d KB\n", (int)ttf_jua.size / 1024, (int)ttf_silkscreen.size / 1024);
+  else
+    logPrintf("     fonts 파티션이 비어 있다 : python3 tools/flash.py --fonts\n");
+  return ret;
 }
 
 const ui_palette_t *uiPalette(void)
@@ -78,12 +125,11 @@ static lv_font_t *uiFontGet(bool is_pixel, int32_t size)
     return NULL;
   }
 
-  if (is_pixel)
-    font = lv_tiny_ttf_create_data_ex(silkscreen_ttf_start, silkscreen_ttf_end - silkscreen_ttf_start,
-                                      size, LV_FONT_KERNING_NONE, FONT_CACHE_CNT);
-  else
-    font = lv_tiny_ttf_create_data_ex(jua_ttf_start, jua_ttf_end - jua_ttf_start,
-                                      size, LV_FONT_KERNING_NONE, FONT_CACHE_CNT);
+  const ttf_t *p_ttf = is_pixel ? &ttf_silkscreen : &ttf_jua;
+
+  if (p_ttf->data == NULL)
+    return NULL;      // 폰트 파티션이 비어 있다 → 부르는 쪽이 Montserrat 로
+  font = lv_tiny_ttf_create_data_ex(p_ttf->data, p_ttf->size, size, LV_FONT_KERNING_NONE, FONT_CACHE_CNT);
   if (font == NULL)
   {
     return NULL;

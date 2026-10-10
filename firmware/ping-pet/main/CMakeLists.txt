@@ -32,10 +32,6 @@ idf_component_register(
     INCLUDE_DIRS "hw/driver/usb"
     INCLUDE_DIRS "hw/driver"
 
-    # 폰트 (OFL) — ui_theme.c 가 Tiny TTF 로 크기마다 만든다
-    EMBED_FILES "ap/modules/ui/fonts/Jua-Regular.ttf"
-    EMBED_FILES "ap/modules/ui/fonts/Silkscreen-Regular.ttf"
-
     # MODULE_DEF 는 constructor 로 자기 등록한다. 다른 곳에서 참조하지 않는 모듈 파일을
     # 링커가 버리지 않도록 아카이브 전체를 링크한다 (ap/modules/module.h 참고)
     WHOLE_ARCHIVE
