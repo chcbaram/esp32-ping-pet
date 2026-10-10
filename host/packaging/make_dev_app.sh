@@ -39,7 +39,10 @@ if pgrep -f "$HOST/ping_pet.py" >/dev/null; then
   exit 0
 fi
 cd "$HOST"
-exec "$HOST/.venv/bin/python" "$HOST/ping_pet.py" $ARGS
+# 이 껍데기 안에서 exec 하면 메뉴 막대 아이콘이 뜨지 않는다 (LaunchServices 가 이 번들의 프로세스로 본다).
+# 파이썬을 따로 띄우고 껍데기는 끝낸다
+nohup "$HOST/.venv/bin/python" "$HOST/ping_pet.py" $ARGS >/dev/null 2>&1 &
+disown
 RUN
 chmod +x "$APP/Contents/MacOS/run"
 touch "$APP"
