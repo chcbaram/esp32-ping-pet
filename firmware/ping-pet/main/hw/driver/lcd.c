@@ -58,6 +58,7 @@ static uint32_t          update_ms = 0;
 static ppa_client_handle_t ppa_srm = NULL;
 static uint32_t          ppa_us = 0;
 static uint32_t          update_area = 0;
+static volatile bool     is_freeze = false;     // 캡처하는 동안 화면 갱신을 멈춘다
 
 
 
@@ -326,6 +327,7 @@ bool lcdDrawScreenArea(const uint16_t *p_screen, int16_t x, int16_t y, int16_t w
   int32_t   out_x, out_y, out_w, out_h;
 
   if (is_init != true) return false;
+  if (is_freeze == true) return false;    // 부르는 쪽이 다음에 전체를 다시 돌린다
 
   if (x < 0) { w += x; x = 0; }
   if (y < 0) { h += y; y = 0; }
@@ -552,6 +554,33 @@ void cliLcd(cli_args_t *args)
     ret = true;
   }
 
+  // 지금 표시 중인 프레임버퍼(패널 방향 RGB565)를 그대로 보낸다. tools/capture.py 가 받아 PNG 로 만든다.
+  //   CAPTURE <panel_w> <panel_h> <rotation> <bytes>\n  <raw>  \nCAPTURE END\n
+  if (args->argc == 1 && args->isStr(0, "capture"))
+  {
+    uint8_t *p_fb;
+    uint32_t sent = 0;
+
+    // 갱신 중에 읽으면 두 프레임이 섞인다. 멈추고, 진행 중인 갱신이 끝날 만큼 기다린 뒤 읽는다
+    is_freeze = true;
+    delay(60);
+    p_fb = (uint8_t *)lcdGetCurrentFrameBuffer();
+
+    cliPrintf("CAPTURE %d %d %d %d\n", PANEL_W, PANEL_H, HW_LCD_ROTATION, (int)FB_SIZE);
+    while (sent < FB_SIZE)
+    {
+      uint32_t len = FB_SIZE - sent;
+
+      if (len > 4096) len = 4096;
+      len = cliWrite(&p_fb[sent], len);
+      if (len == 0) break;
+      sent += len;
+    }
+    cliPrintf("\nCAPTURE END\n");
+    is_freeze = false;
+    ret = true;
+  }
+
   if (args->argc == 2 && args->isStr(0, "display"))
   {
     if (args->isStr(1, "on")) lcdDisplayOn();
@@ -567,6 +596,7 @@ void cliLcd(cli_args_t *args)
     cliPrintf("lcd clear rgb565\n");
     cliPrintf("lcd pattern 0~3\n");
     cliPrintf("lcd display on:off\n");
+    cliPrintf("lcd capture        (tools/capture.py)\n");
   }
 }
 #endif

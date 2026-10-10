@@ -19,6 +19,7 @@ static lv_area_t       area_cur;             // 이번 프레임에 바뀐 영�
 static lv_area_t       area_prev;            // 직전 프레임에 바뀐 영역
 static bool            area_cur_valid  = false;
 static bool            area_prev_valid = false;
+static bool            force_full = false;    // 지난 갱신을 못 했으면 다음에 전체를 돌린다
 
 
 
@@ -98,9 +99,9 @@ void disp_flush(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *px_map)
 
   if (disp_flush_enabled == true && lv_display_flush_is_last(disp_drv) == true)
   {
-    if (flush_full == true)
+    if (flush_full == true || force_full == true)
     {
-      lcdDrawScreen((const uint16_t *)px_map);
+      force_full = (lcdDrawScreen((const uint16_t *)px_map) != true);
     }
     else
     {
@@ -109,11 +110,12 @@ void disp_flush(lv_display_t *disp_drv, const lv_area_t *area, uint8_t *px_map)
 
       area_join(&area_draw, &valid, area_prev_valid ? &area_prev : &area_cur);
 
-      lcdDrawScreenArea((const uint16_t *)px_map,
-                        area_draw.x1,
-                        area_draw.y1,
-                        lv_area_get_width(&area_draw),
-                        lv_area_get_height(&area_draw));
+      // 못 그렸으면 (캡처 중 멈춤 등) 두 버퍼가 어긋났으니 다음에 전체를 돌린다
+      force_full = (lcdDrawScreenArea((const uint16_t *)px_map,
+                                      area_draw.x1,
+                                      area_draw.y1,
+                                      lv_area_get_width(&area_draw),
+                                      lv_area_get_height(&area_draw)) != true);
     }
 
     area_prev       = area_cur;
