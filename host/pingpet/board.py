@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import logging
+import queue
 import threading
 import time
 from typing import Callable
@@ -29,6 +30,8 @@ class BoardLink:
     self.wlock = threading.Lock()
     self.paused = False
     self.fw = None
+    self.ota = False                      # 보드가 USB OTA 를 받는다 (hello 의 ota)
+    self._ota_q: queue.Queue = queue.Queue()
     self.on_connect: Callable[[], None] = lambda: None
     self.on_message: Callable[[dict], None] = lambda msg: None
     self.on_status: Callable[[], None] = lambda: None
@@ -83,6 +86,7 @@ class BoardLink:
     if self.ser is not None:
       self.ser = None
       self.fw = None
+      self.ota = False
       self.on_status()
 
   def start(self):
@@ -118,7 +122,9 @@ class BoardLink:
       buf = b""
       try:
         while self.ser is not None and not self.paused:
-          chunk = ser.read(256)
+          # 와 있는 만큼 바로 읽는다. read(256) 은 256 B 가 차거나 timeout(0.5 초)까지 기다려
+          # 짧은 응답(ota_ack 등)마다 0.5 초씩 늦어진다
+          chunk = ser.read(ser.in_waiting or 1)
           if not chunk:
             continue
           buf += chunk
@@ -143,7 +149,22 @@ class BoardLink:
       log.debug("보드: %r", raw[:200])
       return
     if isinstance(msg, dict):
-      if msg.get("type") == "hello":
+      t = str(msg.get("type", ""))
+      if t == "hello":
         self.fw = msg.get("fw")
+        self.ota = bool(msg.get("ota"))
         self.on_status()
+      if t.startswith("ota_"):
+        self._ota_q.put(msg)              # ota_request() 가 기다린다
+        return
       self.on_message(msg)
+
+  def ota_request(self, msg: dict, timeout: float) -> dict:
+    """OTA 메시지를 보내고 보드의 ota_* 응답 하나를 기다린다. 시간이 지나면 TimeoutError"""
+    while not self._ota_q.empty():        # 지난 응답은 버린다
+      self._ota_q.get_nowait()
+    self.send(msg)
+    try:
+      return self._ota_q.get(timeout=timeout)
+    except queue.Empty:
+      raise TimeoutError(f"보드 응답 없음 ({msg.get('type')})") from None

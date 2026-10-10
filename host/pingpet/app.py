@@ -31,10 +31,15 @@ class PingPetApp:
       from .slack_source import SlackSource
       self.source = SlackSource(self.tracker, include_bots=include_bots, self_test=self_test)
 
-    self.board.on_connect = lambda: self.board.send(self.tracker.sync_msg())
+    self.board.on_connect = self._on_connect
     self.board.on_message = self._on_board
     self.board.on_status = self._changed
     self.tracker.listeners.append(self._changed)
+
+  def _on_connect(self):
+    # 보드에 hello 를 청한다 (펌웨어 버전, OTA 여부). 보드가 먼저 보내는 hello 는 포트를 여는 사이에 사라질 수 있다
+    self.board.send({"type": "hello"})
+    self.board.send(self.tracker.sync_msg())
 
   def _changed(self):
     self.on_change()
