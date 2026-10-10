@@ -7,6 +7,8 @@ CONFIG_ESP_DEFAULT_CPU_FREQ_MHZ_400=y
 CONFIG_ESPTOOLPY_FLASHSIZE_16MB=y
 CONFIG_PARTITION_TABLE_CUSTOM=y
 CONFIG_PARTITION_TABLE_CUSTOM_FILENAME="partitions.csv"
+# 새 펌웨어가 부팅해 ota 모듈이 정상이라고 표시하기 전에 리셋되면 이전 펌웨어로 되돌린다
+CONFIG_BOOTLOADER_APP_ROLLBACK_ENABLE=y
 
 CONFIG_SPIRAM=y
 # PSRAM 200 MHz : PPA 회전이 PSRAM 대역폭에 묶인다 (docs/23). ESPHome 의 이 보드 설정과 같다
@@ -36,3 +38,6 @@ CONFIG_LV_USE_SYSMON=y
 # 한글 · 픽셀 폰트는 TTF 를 펌웨어에 넣고 실행 중에 그린다 (Tiny TTF, docs/24)
 CONFIG_LV_USE_TINY_TTF=y
 CONFIG_LV_TINY_TTF_CACHE_GLYPH_CNT=256
+
+# 플래시를 쓰는 동안(OTA 등) 캐시가 멈춰도 DPI 인터럽트가 돌게 한다. 꺼져 있으면 OTA 중 화면이 깜빡인다
+CONFIG_LCD_DSI_ISR_CACHE_SAFE=y

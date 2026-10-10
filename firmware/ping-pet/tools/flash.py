@@ -11,8 +11,11 @@
 
   쓰는 법
     개발 (ESP-IDF 환경)     python3 tools/flash.py [--fonts]          # build/ 의 이미지
-    릴리즈 (ESP-IDF 없이)   pip install esptool pyserial
+    릴리즈 (ESP-IDF 없이)   pip install "esptool<5" pyserial
                            python3 flash.py --fw ping-pet-fw-V….bin [--fonts-bin ping-pet-fonts-V….bin]
+
+  평소 업데이트는 중계 앱이 USB OTA 로 한다 (보드 화면에 진행 표시). 이 도구는 처음 굽기, 파티션 표가
+  바뀔 때, OTA 를 받지 못하는 옛 펌웨어, 복구용이다.
 
   릴리즈 펌웨어는 0x0 부터 합친 이미지(tools/release.py)다. 설정이 든 NVS 영역은 건너뛰고 쓴다
   (합친 이미지에는 그 자리가 0xFF 로 채워져 있어 그대로 쓰면 글자 크기 · 밝기 설정이 지워진다).
@@ -35,6 +38,10 @@ USB_ID_OLD   = (0x303A, 0x4001)   # pid.codes 로 옮기기 전 앱 (34a5f06 까
 
 PROJ_DIR  = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 BUILD_DIR = os.path.join(PROJ_DIR, "build")
+
+
+class FlashError(Exception):
+  pass
 
 
 def col(s, c=36):
@@ -102,7 +109,24 @@ def esptool_cmd():
   idf_path = os.environ.get("IDF_PATH")
   if idf_path:
     return [sys.executable, os.path.join(idf_path, "components", "esptool_py", "esptool", "esptool.py")]
-  sys.exit("esptool 이 없다. pip install esptool  (또는 ESP-IDF 환경에서 실행)")
+  raise FlashError('esptool 이 없다. pip install "esptool<5"  (또는 ESP-IDF 환경에서 실행)')
+
+
+# esptool 5.x 는 이 보드(USB-OTG 다운로드)에서 큰 조각을 쓰다 'No more data to read' 로 끊긴다. 4.x 를 쓴다.
+# 같은 프로세스에서 esptool.main() 을 부르면 쓰는 도중 'Invalid head of packet' 으로 끊긴다. 따로 실행한다.
+def esptool_run(argv):
+  if subprocess.run(esptool_cmd() + argv).returncode != 0:
+    raise FlashError("esptool 실패")
+
+
+def build_images():
+  """build/flash_args → [주소, 절대 경로, ...] (첫 줄의 --flash_mode 등은 빼고 이미지 머리를 그대로 쓴다)"""
+  out = []
+  for line in open(os.path.join(BUILD_DIR, "flash_args")):
+    c = line.split()
+    if len(c) == 2 and c[0].startswith("0x"):
+      out += [c[0], os.path.join(BUILD_DIR, c[1])]
+  return out
 
 
 # 파티션 위치. 릴리즈 폴더에는 partitions.csv 가 없으므로 기본값을 둔다 (partitions.csv 와 같게)
@@ -134,7 +158,7 @@ def fw_segments(path, tmp):
   while start < len(data) and data[start:start + 0x1000] == b"\xff" * min(0x1000, len(data) - start):
     start += 0x1000                       # 앞의 빈 칸 (0x0 ~ 부트로더 0x2000) 은 쓰지 않는다
   if data[0x2000:0x2001] != b"\xe9":
-    sys.exit(f"{path} : 0x2000 에 부트로더가 없다. tools/release.py 로 만든 합친 이미지인지 확인")
+    raise FlashError(f"{path} : 0x2000 에 부트로더가 없다. tools/release.py 로 만든 합친 이미지인지 확인")
 
   out = []
   for a, b in ((start, nvs_off), (nvs_off + nvs_size, len(data))):
@@ -152,69 +176,78 @@ def fonts_build():
   return fonts.build(os.path.join(BUILD_DIR, "fonts.bin"))
 
 
+def flash(fw=None, fonts_bin=None, fonts=False, port=None, baud=460800, compress=False, baram=True,
+          out=print):
+  """굽는다. fw 가 없으면 build/ 의 이미지. 실패하면 FlashError"""
+  if fw is None and not os.path.isfile(os.path.join(BUILD_DIR, "flash_args")):
+    raise FlashError("build/flash_args 가 없다. 먼저 idf.py build  (릴리즈 파일이면 --fw)")
+  for f in (fw, fonts_bin):
+    if f and not os.path.isfile(f):
+      raise FlashError(f"{f} 가 없다")
+
+  # esptool 이 없으면 다운로드 모드에 넣기 전에 멈춘다 (넣고 나서 실패하면 보드가 꺼진 채 남는다)
+  esptool_cmd()
+
+  p = find_port(USB_ID_APP) or find_port(USB_ID_OLD) or find_port(USB_ID_ROM)
+  if port:
+    p = next((x for x in list_ports.comports() if x.device == port), p)
+  if p is None:
+    raise FlashError("보드를 찾지 못했다 (1209:E324 앱 / 303A:0012 ROM)")
+
+  serial = p.serial_number
+  out(f"{col('board')}      : {p.device}  {p.vid:04X}:{p.pid:04X}  SN={serial}")
+
+  tmp = tempfile.mkdtemp(prefix="ping-pet-")
+  try:
+    with BaramTerm(p.device, baram):
+      if (p.vid, p.pid) != USB_ID_ROM:
+        out(f"{col('reset')}      : 다운로드 모드로")
+        enter_download(p.device)
+        rom = wait_port(USB_ID_ROM, serial)
+        if rom is None:
+          raise FlashError("ROM 다운로드 장치(303A:0012)가 나타나지 않았다")
+      else:
+        rom = p
+      out(f"{col('download')}   : {rom.device}")
+
+      images = fw_segments(os.path.abspath(fw), tmp) if fw else build_images()
+      if fonts_bin:
+        images += [hex(fonts_offset()), os.path.abspath(fonts_bin)]
+      elif fonts:
+        images += [hex(fonts_offset()), fonts_build()]
+
+      # USB-OTG 다운로드에서 압축 쓰기는 이미지가 커지면 (약 3 MB, 폰트 포함) 스텁이
+      #   'Failed to write compressed data to flash after seq 575 (result was C900: Too much data)'
+      # 로 멈춘다. 압축하지 않으면 된다. HS USB 라 속도 차이는 크지 않다.
+      esptool_run(["--chip", "esp32p4", "-p", rom.device, "-b", str(baud),
+                   "--before", "no_reset", "--after", "hard_reset",
+                   "write_flash"] + ([] if compress else ["--no-compress"]) + images)
+
+      app = wait_port(USB_ID_APP, serial)
+      if app is None:
+        raise FlashError("앱(1209:E324)이 다시 나타나지 않았다")
+      out(f"{col('app')}        : {app.device}")
+      time.sleep(0.5)
+  finally:
+    shutil.rmtree(tmp, ignore_errors=True)
+
+
 def main():
   ap = argparse.ArgumentParser(description="USB(HS OTG) 로 버튼 없이 굽기")
   ap.add_argument("--port", help="시리얼 포트. 없으면 VID/PID 로 찾는다")
   ap.add_argument("--baud", type=int, default=460800)
   ap.add_argument("--no-baram", action="store_true", help="baram-term 포트 놓기/다시 열기를 하지 않는다")
-  ap.add_argument("--compress", action="store_true", help="압축해서 쓴다 (기본은 압축하지 않는다, 아래 주석)")
+  ap.add_argument("--compress", action="store_true", help="압축해서 쓴다 (기본은 압축하지 않는다)")
   ap.add_argument("--fonts", action="store_true", help="폰트 파티션도 쓴다 (tools/fonts.py 로 만든다). 폰트가 바뀔 때만")
   ap.add_argument("--fw", metavar="BIN", help="릴리즈 펌웨어 (합친 이미지). 없으면 build/ 의 이미지")
   ap.add_argument("--fonts-bin", metavar="BIN", help="릴리즈 폰트 이미지")
   args = ap.parse_args()
 
-  if args.fw is None and not os.path.isfile(os.path.join(BUILD_DIR, "flash_args")):
-    sys.exit("build/flash_args 가 없다. 먼저 idf.py build  (릴리즈 파일이면 --fw)")
-  for f in (args.fw, args.fonts_bin):
-    if f and not os.path.isfile(f):
-      sys.exit(f"{f} 가 없다")
-  tmp = tempfile.mkdtemp(prefix="ping-pet-")
-
-  p = find_port(USB_ID_APP) or find_port(USB_ID_OLD) or find_port(USB_ID_ROM)
-  if args.port:
-    p = next((x for x in list_ports.comports() if x.device == args.port), p)
-  if p is None:
-    sys.exit("보드를 찾지 못했다 (1209:E324 앱 / 303A:0012 ROM)")
-
-  serial = p.serial_number
-  print(f"{col('board')}      : {p.device}  {p.vid:04X}:{p.pid:04X}  SN={serial}")
-
-  with BaramTerm(p.device, not args.no_baram):
-    if (p.vid, p.pid) != USB_ID_ROM:
-      print(f"{col('reset')}      : 다운로드 모드로")
-      enter_download(p.device)
-      rom = wait_port(USB_ID_ROM, serial)
-      if rom is None:
-        sys.exit("ROM 다운로드 장치(303A:0012)가 나타나지 않았다")
-    else:
-      rom = p
-    print(f"{col('download')}   : {rom.device}")
-
-    if args.fw:
-      images = fw_segments(os.path.abspath(args.fw), tmp)
-    else:
-      images = ["@flash_args"]
-    if args.fonts_bin:
-      images += [hex(fonts_offset()), os.path.abspath(args.fonts_bin)]
-    elif args.fonts:
-      images += [hex(fonts_offset()), fonts_build()]
-
-    cmd = esptool_cmd() + ["--chip", "esp32p4", "-p", rom.device, "-b", str(args.baud),
-                           "--before", "no_reset", "--after", "hard_reset",
-                           "write_flash"] + ([] if args.compress else ["--no-compress"]) + images
-    # USB-OTG 다운로드에서 압축 쓰기는 이미지가 커지면 (약 3 MB, 폰트 포함) 스텁이
-    #   'Failed to write compressed data to flash after seq 575 (result was C900: Too much data)'
-    # 로 멈춘다. 압축하지 않으면 된다. HS USB 라 속도 차이는 크지 않다.
-    r = subprocess.run(cmd, cwd=BUILD_DIR if os.path.isdir(BUILD_DIR) else None)
-    shutil.rmtree(tmp, ignore_errors=True)
-    if r.returncode != 0:
-      sys.exit(r.returncode)
-
-    app = wait_port(USB_ID_APP, serial)
-    if app is None:
-      sys.exit("앱(1209:E324)이 다시 나타나지 않았다")
-    print(f"{col('app')}        : {app.device}")
-    time.sleep(0.5)
+  try:
+    flash(fw=args.fw, fonts_bin=args.fonts_bin, fonts=args.fonts, port=args.port, baud=args.baud,
+          compress=args.compress, baram=not args.no_baram)
+  except FlashError as e:
+    sys.exit(str(e))
 
 
 if __name__ == "__main__":

@@ -92,7 +92,7 @@ static lv_obj_t *foot[2];          // 배고픔 : 발을 동동 구른다
 static lv_point_precise_t frown_pts[9];
 static pet_state_t        cur_state = PET_STATE_MAX;
 
-static const char *state_name[PET_STATE_MAX] = {"idle", "hungry", "cry", "eat"};
+static const char *state_name[PET_STATE_MAX] = {"idle", "hungry", "cry", "eat", "update"};
 
 
 
@@ -591,6 +591,7 @@ void petSetState(pet_state_t state)
   bool hungry = (state == PET_STATE_HUNGRY);
   bool cry    = (state == PET_STATE_CRY);
   bool eat    = (state == PET_STATE_EAT);
+  bool update = (state == PET_STATE_UPDATE);
 
   if (state >= PET_STATE_MAX || state == cur_state)
     return;
@@ -603,9 +604,9 @@ void petSetState(pet_state_t state)
   for (int i=0; i<2; i++)
   {
     lv_obj_set_hidden(eye_half[i], !eat);
-    lv_obj_set_hidden(eye_full[i], !(idle || hungry));
+    lv_obj_set_hidden(eye_full[i], !(idle || hungry || update));
     lv_obj_set_hidden(pupil[i],    !hungry);
-    lv_obj_set_hidden(smile_eye[i], !idle);
+    lv_obj_set_hidden(smile_eye[i], !(idle || update));
     lv_obj_set_hidden(eye_flat[i], !cry);
     lv_obj_set_hidden(blush[i],    !(idle || eat));
     lv_obj_set_hidden(puddle[i],   !cry);
@@ -622,11 +623,12 @@ void petSetState(pet_state_t state)
   lv_obj_set_hidden(mouth_open, !hungry);
   lv_obj_set_hidden(tongue,     !hungry);
   lv_obj_set_hidden(sweat,      !hungry);
-  lv_obj_set_hidden(mouth_eat,  !eat);
+  lv_obj_set_hidden(mouth_eat,  !(eat || update));
   lv_obj_set_hidden(onigiri,    !eat);
   lv_obj_set_hidden(frown,      !cry);
 
   if (idle)   animStart(mouth,     animMouthBreath, -BREATH_PX, BREATH_PX, 1000);    // 2 초 주기
+  if (update) animStart(mouth_eat, animChew, PL(EAT_W), PL(56.0f), 220);
   if (eat)
   {
     lv_anim_t a;

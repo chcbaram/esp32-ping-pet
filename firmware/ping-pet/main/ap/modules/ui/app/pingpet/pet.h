@@ -22,6 +22,7 @@ typedef enum
   PET_STATE_HUNGRY,       // 배고픔 : 동그란 눈 + 두리번거리는 눈동자, 벌린 입, 땀방울, 발 동동
   PET_STATE_CRY,          // 울음   : 탁한 초록 몸, 가는 선 눈, 눈물 · 떨어지는 방울, 찡그린 입, 흐느낌
   PET_STATE_EAT,          // 냠냠   : 반원 눈, 오물거리는 입, 주먹밥
+  PET_STATE_UPDATE,       // 업데이트 : 웃는 눈(여유와 같은 눈), 오물거리는 입 (펌웨어를 먹는 중)
   PET_STATE_MAX,
 } pet_state_t;
 

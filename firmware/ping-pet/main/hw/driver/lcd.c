@@ -226,7 +226,9 @@ void lcdInitBackLight(void)
   ledc_channel_config(&ch_cfg);
 }
 
-static bool lcdOnVsync(esp_lcd_panel_handle_t panel, esp_lcd_dpi_panel_event_data_t *edata, void *user_ctx)
+// CONFIG_LCD_DSI_ISR_CACHE_SAFE : 플래시를 쓰는 동안(OTA, NVS)에도 DPI 인터럽트가 돌아야 화면이 깜빡이지 않는다.
+// 그래서 이 콜백도 IRAM 에 둔다
+static IRAM_ATTR bool lcdOnVsync(esp_lcd_panel_handle_t panel, esp_lcd_dpi_panel_event_data_t *edata, void *user_ctx)
 {
   BaseType_t woken = pdFALSE;
 

@@ -1,4 +1,5 @@
 #include "ui.h"
+#include "ota/ota.h"
 #include "module.h"
 #include "launcher.h"
 
@@ -76,6 +77,13 @@ void uiThread(void *arg)
 
   while(1)
   {
+    // USB OTA 를 받기 시작하면 업데이트 화면으로 (끝나면 그 화면이 기본 app 으로 돌아간다)
+    if (otaIsActive())
+    {
+      const char *name = launcherGetAppName();
+      if (name == NULL || strcmp(name, "update") != 0)
+        launcherRunApp("update");
+    }
     launcherUpdate();
     lvglUpdate();
     delay(5);

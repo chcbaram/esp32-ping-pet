@@ -1,6 +1,8 @@
 #include "module.h"
 #include "inbox.h"
+#include "ota/ota.h"
 #include "cJSON.h"
+#include "mbedtls/base64.h"
 
 
 /* 맥 중계 링크 — USB CDC 위의 줄 단위 JSON (인계 문서 "USB 프로토콜")
@@ -13,9 +15,16 @@
  *               done {id, waited}                 답장 감지 → 냠냠
  *               remove {id}                       조용히 제거
  *               tick {now, tz, stats}             시계 · 하트비트 (60 초)
- *   보드 → 맥   hello {fw}                        연결 직후. 맥은 sync 로 답한다
+ *               hello {}                          연결 직후. 보드는 hello 로 답한다
+ *                                                 (보드가 먼저 보내는 hello 는 맥 OS 가 포트를 여는 사이에 사라질 수 있다)
+ *               ota_begin {target: app | fonts, size, sha256, version}
+ *               ota_data {off, data}              data 는 base64 (원본 OTA_CHUNK_MAX 이하)
+ *               ota_end {} / ota_abort {}
+ *   보드 → 맥   hello {fw, ota: 1}                연결 직후. 맥은 sync 로 답한다. ota : USB OTA 를 받는다
  *               open {id}                         카드 탭
  *               ack {id}                          카드 길게 누름
+ *               ota_ready {} / ota_ack {off} / ota_done {} / ota_error {msg}
+ *                                                 OTA 는 한 조각씩 : 맥은 ota_ack 를 받고 다음 조각을 보낸다
  *
  *   item  : {id, kind: dm | mpim | mention, from, where, text, ts}
  *   stats : {handled_today, avg_wait_min, recent: [{kind, from, where, waited, at}]}
@@ -24,6 +33,7 @@
 
 
 #define LINK_LINE_MAX          4096
+#define OTA_CHUNK_MAX          2048     // base64 로 2732 B. 한 줄과 CDC 수신 큐(4 KB)에 들어간다
 
 
 static bool linkInit(void);
@@ -89,6 +99,7 @@ static void linkSendHello(void)
 
   cJSON_AddStringToObject(p_json, "type", "hello");
   cJSON_AddStringToObject(p_json, "fw", _DEF_FIRMWATRE_VERSION);
+  cJSON_AddNumberToObject(p_json, "ota", 1);
   linkSendJson(p_json);
   cJSON_Delete(p_json);
 }
@@ -100,6 +111,20 @@ void linkSendRequest(const char *type, const char *id)
 
   cJSON_AddStringToObject(p_json, "type", type);
   cJSON_AddStringToObject(p_json, "id", id);
+  linkSendJson(p_json);
+  cJSON_Delete(p_json);
+}
+
+
+static void linkSendOta(const char *type, int32_t off, const char *msg)
+{
+  cJSON *p_json = cJSON_CreateObject();
+
+  cJSON_AddStringToObject(p_json, "type", type);
+  if (off >= 0)
+    cJSON_AddNumberToObject(p_json, "off", off);
+  if (msg != NULL)
+    cJSON_AddStringToObject(p_json, "msg", msg);
   linkSendJson(p_json);
   cJSON_Delete(p_json);
 }
@@ -177,6 +202,51 @@ static bool parseStats(const cJSON *p_obj, inbox_stats_t *p_stats)
   return true;
 }
 
+static void linkHandleOta(const char *type, const cJSON *p_json)
+{
+  static uint8_t data[OTA_CHUNK_MAX];
+  char           err[64];
+
+  if (strcmp(type, "ota_begin") == 0)
+  {
+    const char  *target = jsonStr(p_json, "target");
+    ota_target_t t = strcmp(target, "fonts") == 0 ? OTA_TARGET_FONTS : OTA_TARGET_APP;
+
+    if (otaBegin(t, jsonU32(p_json, "size"), jsonStr(p_json, "sha256"), jsonStr(p_json, "version"), err, sizeof(err)))
+      linkSendOta("ota_ready", -1, NULL);
+    else
+      linkSendOta("ota_error", -1, err);
+  }
+  else if (strcmp(type, "ota_data") == 0)
+  {
+    const char *b64 = jsonStr(p_json, "data");
+    uint32_t    off = jsonU32(p_json, "off");
+    size_t      len = 0;
+
+    if (mbedtls_base64_decode(data, sizeof(data), &len, (const uint8_t *)b64, strlen(b64)) != 0)
+    {
+      otaAbort("데이터가 깨짐 (base64)");
+      linkSendOta("ota_error", -1, "base64");
+      return;
+    }
+    if (otaWrite(off, data, len, err, sizeof(err)))
+      linkSendOta("ota_ack", (int32_t)(off + len), NULL);
+    else
+      linkSendOta("ota_error", -1, err);
+  }
+  else if (strcmp(type, "ota_end") == 0)
+  {
+    if (otaEnd(err, sizeof(err)))
+      linkSendOta("ota_done", -1, NULL);
+    else
+      linkSendOta("ota_error", -1, err);
+  }
+  else if (strcmp(type, "ota_abort") == 0)
+  {
+    otaAbort("중계가 그만둠");
+  }
+}
+
 static void linkHandleLine(const char *line)
 {
   cJSON         *p_json;
@@ -229,6 +299,14 @@ static void linkHandleLine(const char *line)
   {
     inboxRemove(jsonStr(p_json, "id"));
   }
+  else if (strcmp(type, "hello") == 0)
+  {
+    linkSendHello();
+  }
+  else if (strncmp(type, "ota_", 4) == 0)
+  {
+    linkHandleOta(type, p_json);
+  }
   else if (strcmp(type, "tick") == 0)
   {
     inboxTick(jsonU32(p_json, "now"), jsonI32(p_json, "tz", 9 * 3600), has_stats ? &stats : NULL);
@@ -252,6 +330,8 @@ void linkUpdate(void const *arg)
     logPrintf("[  ] link %s\n", active ? "open" : "close");
     if (active)
       linkSendHello();
+    else
+      otaAbort("링크가 끊김");
   }
   if (is_active != true)
     return;
