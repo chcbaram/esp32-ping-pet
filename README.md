@@ -32,6 +32,7 @@ Slack ──(Socket Mode)──▶ 맥 / PC 중계 ──(USB, 줄 단위 JSON)�
   - 짧게 누르기 : 맥 / PC 의 Slack 에서 그 대화 열기
   - 1 초 누르기 : 답장 없이 처리됨으로 표시
 - **설정** (상단 바 길게 누르기) — 글자 크기 3 단계, 화면 밝기, 데모 모드
+- **트레이 앱** — 답답이 로고 (미응답이 있으면 빨간 점), 미응답 목록, 보드 펌웨어 업데이트 (USB OTA)
 - **데모 모드** — Slack 없이 가상의 메시지로 4 상태를 돌려 본다
 - 미응답이 없으면 10 분 뒤 화면을 어둡게 한다
 
@@ -66,12 +67,13 @@ Releases 에서 세 파일을 한 폴더에 받는다.
 | `flash.py` | 굽기 도구 |
 
 ```bash
-pip install esptool pyserial
+pip install "esptool<5" pyserial
 python3 flash.py --fw ping-pet-fw-<버전>.bin --fonts-bin ping-pet-fonts-<버전>.bin   # 처음
 python3 flash.py --fw ping-pet-fw-<버전>.bin                                        # 업데이트 (폰트가 같으면)
 ```
 
-글자 크기 · 밝기 설정은 지우지 않고 남긴다. 받은 파일은 `SHA256SUMS` 로 확인할 수 있다 (`shasum -a 256 -c SHA256SUMS`).
+글자 크기 · 밝기 설정은 지우지 않고 남긴다. **그 뒤의 업데이트는 중계 트레이의 "보드 펌웨어 업데이트" 로 한다** (USB OTA, 보드 화면에 진행이 보인다).
+받은 파일은 `SHA256SUMS` 로 확인할 수 있다 (`shasum -a 256 -c SHA256SUMS`).
 
 #### 소스에서 빌드
 
@@ -89,14 +91,15 @@ python3 tools/release.py           # 릴리즈 파일을 dist/ 에 만든다
 
 ### 2. 중계 실행
 
-> 설치 파일(macOS `.dmg`, Windows `Setup.exe`, Linux `.AppImage`)과 트레이 아이콘은 **준비 중**이다. 지금은 파이썬으로 실행한다.
+> 설치 파일(macOS `.dmg`, Windows `Setup.exe`, Linux `.AppImage`)은 **준비 중**이다. 지금은 파이썬으로 실행한다.
 
 ```bash
 cd host
 python3 -m venv .venv
-.venv/bin/pip install slack_sdk pyserial keyring pystray Pillow
-.venv/bin/python ping_pet.py --simulate --no-tray    # Slack 없이 보드 연결 시험
-.venv/bin/python ping_pet.py --no-tray               # Slack 연결 (아래 설정 뒤)
+.venv/bin/pip install slack_sdk pyserial keyring pystray Pillow "esptool<5"
+.venv/bin/python ping_pet.py --simulate             # Slack 없이 보드 연결 시험
+.venv/bin/python ping_pet.py                        # Slack 연결 (아래 설정 뒤). 메뉴 막대 · 트레이에 아이콘
+.venv/bin/python ping_pet.py --no-tray              # 트레이 없이 (서비스 등)
 ```
 
 중계는 보드를 USB VID:PID `1209:E324` 로 찾는다. 포트 이름을 신경 쓸 필요가 없다.
@@ -166,7 +169,7 @@ Slackbot 리마인더(`/remind`)는 이벤트로 오지 않아 미응답에 들�
 내가 쓴 메시지는 모두 "내 답장" 으로 보므로 나에게 DM 을 보내도 카드가 생기지 않는다. `--self-test` 로 실행하면
 
 ```bash
-.venv/bin/python ping_pet.py --no-tray --self-test
+.venv/bin/python ping_pet.py --self-test
 ```
 
 | 나에게 보내는 DM 에 쓴 글 | 결과 |

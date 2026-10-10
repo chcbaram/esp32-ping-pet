@@ -10,9 +10,9 @@ Guition JC4880P443C (ESP32-P4 + ESP32-C6, 4.3" 480×800 MIPI-DSI) 보드 기준 
 | | |
 |---|---|
 | 보드 | JC4880P443C V1.0 (회로도 `hardware/JC4880P443_V1.0.pdf`) — **ESP32-P4 rev v3.2** (esptool 로 확인) |
-| 펌웨어 | `ping-pet` — UART0 + 로그 + CLI, **USB HS CDC (esp_tinyusb)**, 모듈 시스템, **버튼 없이 다운로드**, **LCD · 터치 · 백라이트**, **LVGL 9.6**, **Ping Pet 대시보드 · 답답이 · 데모 모드 · 설정**. 보드에서 동작 확인 |
+| 펌웨어 | `ping-pet` — UART0 + 로그 + CLI, **USB HS CDC (esp_tinyusb)**, 모듈 시스템, **버튼 없이 다운로드**, **LCD · 터치 · 백라이트**, **LVGL 9.6**, **Ping Pet 대시보드 · 답답이 · 데모 모드 · 설정**, **맥 중계 링크 · Slack**, **USB OTA**. 보드에서 동작 확인 |
 | 클럭 | CPU 400 MHz, PSRAM 32 MB **200 MHz**, Flash 16 MB |
-| 빌드 | ESP-IDF v5.5.5, `-Og` — 앱 약 846 KB / 8 MB, 폰트 2.1 MB / 3 MB (fonts 파티션) |
+| 빌드 | ESP-IDF v5.5.5, `-Og` — 앱 약 1.0 MB / 4 MB (OTA 자리 두 개), 폰트 2.1 MB / 3 MB (fonts 파티션) |
 | USB | HS 커넥터 하나로 플래시 · CLI · 로그. 앱 `1209:E324`, ROM 다운로드 `303A:0012`, 시리얼 = MAC |
 
 ### 바로 다시 시작하기
@@ -24,6 +24,7 @@ idf.py build
 python3 tools/flash.py                   # 버튼 없이 굽기. baram-term 이 포트를 열고 있으면 잠시 놓게 한다
 python3 tools/flash.py --fonts           # 처음 한 번, 그리고 폰트가 바뀔 때 (fonts 파티션)
 python3 tools/capture.py -o shot.png     # 화면 캡처
+python3 tools/release.py                 # 릴리즈 파일 (dist/) — 중계 트레이의 "보드 펌웨어 업데이트" 가 이것을 OTA 로 보낸다
 ```
 
 전원을 켜면 Ping Pet 화면이 바로 뜬다. 맥 중계 없이 보려면 CLI `demo on` 또는 설정 앱(상단 바 길게 누르기)의 데모 모드.
@@ -32,7 +33,7 @@ CLI 는 보드의 HS USB 포트(`/dev/cu.usbmodem…`)를 **115200** 으로 열�
 
 ### 다음 작업
 
-1. 맥 중계 연결 — CDC cmd 채널(115200 이 아닌 보율)로 JSON 줄을 받아 inbox 에 넣는다, `host/ping_pet.py` 실행 (Slack 토큰)
+1. 중계 시작할 때 훑기 (켜기 전에 와 있던 미응답), 중계 앱 묶기 (.app / .dmg)
 2. 답답이 이름을 어디에 보여 줄지 (보류, [24](24-ui.md) 8 절)
 3. HID (웹 설정 채널, PID `E325`) → [27](27-usb.md) 6절
 4. pid.codes 에 `1209:E324` ~ `E327` 등록 (사용자)
@@ -43,7 +44,7 @@ CLI 는 보드의 HS USB 포트(`/dev/cu.usbmodem…`)를 **115200** 으로 열�
 firmware/
 ├── docs/                 이 문서
 └── ping-pet/             ESP-IDF 프로젝트 (보드 하나, 부트로더는 IDF 2단 부트로더)
-host/                     맥 중계 스크립트 ping_pet.py (Slack Socket Mode → USB CDC)
+host/                     맥 · PC 중계 (Slack Socket Mode → USB CDC, 트레이, OTA)
 hardware/                 회로도
 ```
 
@@ -84,6 +85,7 @@ stm32h563-core 와 같다.
 | [23-lvgl.md](23-lvgl.md) | **LVGL 9.6** — DIRECT 모드 + PPA 회전 (바뀐 영역만, PSRAM 200 MHz 에서 0.74 ms), 길게 누르기 | ✅ |
 | [24-ui.md](24-ui.md) | **UI** — inbox 모델, 4 상태 대시보드, 답답이 애니메이션, 폰트(Tiny TTF, fonts 파티션), 글자 크기, 설정 앱, 데모 모드, 캡처 | ✅ (맥 중계 남음) |
 | [27-usb.md](27-usb.md) | **USB HS CDC** — CDC 주인을 보율로 가름, **버튼 없이 ROM 다운로드**, VID/PID | ✅ (CLI `boot` 명령 미확인) |
+| [28-ota.md](28-ota.md) | **USB OTA** — 링크로 앱 · 폰트 받기, 보드 화면에 진행, 롤백, OTA 중 깜빡임 (DSI ISR cache safe), 릴리즈 파일 | ✅ (롤백 미확인) |
 
 ## 출처
 

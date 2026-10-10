@@ -38,8 +38,11 @@ firmware/ping-pet/
     │       ├── common/
     │       │   ├── cli/cli.c              CLI 포트 전환 (UART0 ↔ CDC)
     │       │   └── usb/usb_task.c         usbInit + cdcInit
-    │       ├── inbox/                     미응답 목록 모델, 데모 모드 ([24](24-ui.md))
-    │       └── ui/                        테마, 런처, app (pingpet, settings), 폰트 ([24](24-ui.md))
+    │       ├── service/                   화면 뒤에서 도는 기능
+    │       │   ├── inbox/                 미응답 목록 모델, 데모 모드 ([24](24-ui.md))
+    │       │   ├── link/                  맥 중계 링크 (USB CDC 위 JSON 줄)
+    │       │   └── ota/                   USB OTA ([28](28-ota.md))
+    │       └── ui/                        테마, 런처, app (pingpet, settings, update), 폰트 ([24](24-ui.md))
     ├── bsp/bsp.c / bsp.h          delay, millis, micros, CPU 클럭
     ├── common/                    ← stm32h563-core 그대로
     │   ├── def.h, err_code.h, evt_code.h
