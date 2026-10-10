@@ -1,5 +1,6 @@
 #include "ui.h"
 #include "ota/ota.h"
+#include "power/power.h"
 #include "module.h"
 #include "launcher.h"
 
@@ -84,6 +85,8 @@ void uiThread(void *arg)
       if (name == NULL || strcmp(name, "update") != 0)
         launcherRunApp("update");
     }
+    if (lv_display_get_inactive_time(NULL) < 1000)   // 화면을 만지는 동안은 잠들지 않는다
+      powerTouch();
     launcherUpdate();
     lvglUpdate();
     delay(5);

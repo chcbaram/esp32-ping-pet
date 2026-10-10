@@ -4,6 +4,7 @@
 #include "inbox.h"
 #include "lvgl/lv_port_indev.h"
 #include "launcher.h"
+#include "power/power.h"
 
 
 #ifdef _USE_HW_LVGL
@@ -317,6 +318,9 @@ static void onCard(lv_event_t *e)
   // 스크롤하다 손을 뗀 것이면 누른 것으로 보지 않는다 (stm32h7-gfx 13 편 "스크롤했는데 선택된다").
   // 길게 누르기는 "답장 없이 처리" 라 잘못 눌리면 곤란하다
   if (indev != NULL && lv_indev_get_scroll_obj(indev) != NULL)
+    return;
+  // 꺼진 화면을 켠 터치로는 누르지 않는다
+  if (powerIsWakeTouch())
     return;
 
   // TODO: 누른 결과를 화면 아래에 2 초 알림으로 보여 준다. 지금은 맥 화면을 보지 않으면 눌렸는지 모른다
@@ -817,6 +821,8 @@ void pingpetRefresh(bool force)
 static void onBarLongPress(lv_event_t *e)
 {
   LV_UNUSED(e);
+  if (powerIsWakeTouch())          // 꺼진 화면을 켠 터치
+    return;
   launcherRequestApp("settings");
 }
 
@@ -826,6 +832,10 @@ static void onBarLongPress(lv_event_t *e)
 static void backlightUpdate(void)
 {
   bool     active = false;
+
+  if (powerIsScreenOff())          // 화면이 꺼져 있으면 power 모듈이 맡는다
+    return;
+
   uint32_t sig    = (uint32_t)view.count | ((uint32_t)view.wip << 8) | ((uint32_t)view.state << 16);
 
   if (lv_display_get_inactive_time(NULL) < 1000)    active = true;   // 방금 만졌다

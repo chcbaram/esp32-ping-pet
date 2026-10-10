@@ -131,6 +131,8 @@ bool     inboxDemoIsOn(void);
 
 // 화면이 부른다
 void     inboxGetView(inbox_view_t *p_view);
+bool     inboxIsLinkAlive(void);             // 맥 중계에서 90 초 안에 sync · tick 을 받았다 (가볍다)
+uint32_t inboxGetLinkMs(void);               // 맥 중계에서 마지막으로 sync · tick 을 받은 때 (millis)
 void     inboxRequestOpen(const char *id);   // 카드 탭 : 맥 슬랙에서 대화 열기
 void     inboxRequestAck(const char *id);    // 카드 길게 누름 : 답장 없이 처리
 void     inboxRequestWip(const char *id, bool on);   // 카드 길게 누름 : 처리 중 / 해제

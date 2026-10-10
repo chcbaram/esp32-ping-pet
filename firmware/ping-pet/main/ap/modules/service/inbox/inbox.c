@@ -343,6 +343,16 @@ void inboxGetView(inbox_view_t *p_view)
   unLock();
 }
 
+uint32_t inboxGetLinkMs(void)
+{
+  return link_ms;
+}
+
+bool inboxIsLinkAlive(void)
+{
+  return link_ever && millis() - link_ms < INBOX_LINK_TIMEOUT_MS;
+}
+
 void inboxSetRequestFunc(void (*func)(const char *type, const char *id))
 {
   request_func = func;
