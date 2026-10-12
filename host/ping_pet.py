@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import logging
+import os
 import sys
 import threading
 
@@ -19,7 +20,19 @@ from pingpet import settings
 from pingpet.platform_util import log_file
 
 
+def use_certifi():
+  """묶은 앱의 OpenSSL 은 빌드한 PC 의 경로(/Library/Frameworks/Python.framework/.../cert.pem)에서
+  인증서를 찾는다. 그 경로가 없는 맥에서는 Slack 연결이 CERTIFICATE_VERIFY_FAILED 로 실패하므로
+  certifi 인증서를 쓰게 한다. 사용자가 SSL_CERT_FILE 을 지정했으면 그것을 따른다."""
+  try:
+    import certifi
+  except ImportError:
+    return
+  os.environ.setdefault("SSL_CERT_FILE", certifi.where())
+
+
 def main():
+  use_certifi()
   ap = argparse.ArgumentParser(description=f"{APP_NAME} 중계 {__version__}")
   ap.add_argument("--simulate", action="store_true", help="Slack 없이 가상의 메시지로 시험")
   ap.add_argument("--dry-run", action="store_true", help="보드 대신 보낼 JSON 줄을 표준 출력에")

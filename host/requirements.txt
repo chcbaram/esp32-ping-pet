@@ -4,3 +4,4 @@ pyserial
 keyring
 pystray
 Pillow
+certifi
